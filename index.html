@@ -348,6 +348,9 @@
     </table>
     <button class="add-row-btn" onclick="addRow()">+ Row Add Karein</button>
     <div class="total-preview">Total: ₹ <span id="totalPreview">0.00</span></div>
+    <!-- Smart auto-suggest: items typed most often across past bills show up
+         here automatically, sorted by how frequently they've been used. -->
+    <datalist id="itemSuggestions"></datalist>
   </div>
 
   <button class="upi-btn" onclick="generateUPIQR()">💳 UPI Payment QR Generate Karein (Full Screen)</button>
@@ -384,13 +387,32 @@
 </div>
 
 <!-- Full-screen QR overlay for easy scanning -->
-<div id="qrFullscreen" style="display:none; position:fixed; inset:0; background:#0c1f4a; z-index:9999; flex-direction:column; align-items:center; justify-content:center; padding:20px; padding-top:max(50px, env(safe-area-inset-top, 50px));">
-  <button onclick="closeQRFullscreen()" style="position:absolute; top:18px; right:18px; background:#e63946; color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:18px; cursor:pointer;">✕</button>
-  <h2 style="color:#fff; margin-bottom:10px; text-align:center;">Scan &amp; Pay via any UPI App</h2>
-  <div id="qrcodeDivFull" style="background:#fff; padding:16px; border-radius:16px; max-width:90vw; box-sizing:border-box; display:flex; align-items:center; justify-content:center;"></div>
-  <p style="color:#ffd54f; font-size:26px; font-weight:800; margin-top:18px;">Amount: ₹ <span id="upiAmountDisplayFull">0.00</span></p>
-  <p style="color:#fff; font-size:14px;">UPI ID: 9155944307@ybl</p>
-  <button class="add-row-btn" onclick="downloadQR()" style="margin-top:10px; max-width:340px;">⬇ QR Image Download Karein</button>
+<div id="qrFullscreen" style="display:none; position:fixed; inset:0; background:#0c1f4a; z-index:9999; flex-direction:column; align-items:center; justify-content:flex-start; padding:20px; padding-top:max(50px, env(safe-area-inset-top, 50px)); padding-bottom:max(30px, env(safe-area-inset-bottom, 30px)); overflow-y:auto;">
+  <button onclick="closeQRFullscreen()" style="position:absolute; top:18px; right:18px; background:#e63946; color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:18px; cursor:pointer; z-index:2;">✕</button>
+
+  <!-- This card is exactly what gets captured & downloaded/shared as the QR image -->
+  <div id="qrCardFull" style="background:#ffffff; border-radius:18px; padding:20px 18px 24px; width:100%; max-width:340px; box-sizing:border-box; border:4px solid #f2a900; box-shadow:0 8px 22px rgba(0,0,0,0.35); margin:0 auto;">
+    <div style="text-align:center;">
+      <div id="qrHeaderText" style="color:#0c1f4a; font-weight:900; font-size:19px; letter-spacing:0.5px; line-height:1.4;">AVROK<br>AC TECHNICIAN AND ELECTRICIAN</div>
+      <div id="qrDivider" style="width:70px; height:3px; background:linear-gradient(90deg,#f2a900,#f26b00); margin:8px auto 0; border-radius:2px;"></div>
+    </div>
+
+    <div id="qrcodeDivFull" style="position:relative; background:#fff; padding:12px; border-radius:14px; border:2px solid #1a3e8c; box-sizing:border-box; display:flex; align-items:center; justify-content:center; margin:16px auto 0;"></div>
+
+    <div style="text-align:center; margin-top:16px;">
+      <div id="qrAvrokLabel" style="color:#0c1f4a; font-weight:900; font-size:22px; letter-spacing:1.5px;">AVROK</div>
+      <div id="qrTotalLabel" style="color:#1a3e8c; font-size:13px; font-weight:700; margin-top:6px;">Total Amount is</div>
+      <div id="qrAmountLine" style="color:#f26b00; font-size:28px; font-weight:900; margin-top:2px;">₹ <span id="upiAmountDisplayFull">0.00</span></div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-top:14px;">
+    <p style="color:#fff; font-size:14px; margin:0; font-weight:600;">Scan &amp; Pay via any UPI App</p>
+    <p style="color:#ffd54f; font-size:14px; font-weight:600; margin:4px 0 0 0;" id="upiCustNameDisplay"></p>
+    <p style="color:#c9d2e6; font-size:12px; margin:2px 0 0 0;">UPI ID: 9155944307@ybl</p>
+  </div>
+
+  <button class="add-row-btn" onclick="downloadQR()" style="margin-top:14px; max-width:340px;">⬇ QR Image Download Karein</button>
   <button class="whatsapp-btn" onclick="confirmPaymentAndSend()" style="max-width:340px; margin-top:14px;">✅ Payment Mil Gaya - Bill WhatsApp Par Bhejein</button>
 </div>
 
@@ -460,7 +482,7 @@ function addRow(){
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td style="text-align:center;">${rowCount}</td>
-    <td><input type="text" class="itemName" placeholder="Saman ka naam" enterkeyhint="next"></td>
+    <td><input type="text" class="itemName" list="itemSuggestions" placeholder="Saman ka naam" enterkeyhint="next" autocomplete="off"></td>
     <td><input type="number" class="itemQty" value="1" min="0" oninput="calcTotal()" enterkeyhint="next"></td>
     <td><input type="number" class="itemRate" value="0" min="0" step="0.01" oninput="calcTotal()" enterkeyhint="next"></td>
     <td class="amt-cell"><span class="itemAmt">0.00</span></td>
@@ -484,6 +506,23 @@ function addRow(){
   nameInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'name'));
   qtyInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'qty'));
   rateInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'rate'));
+
+  // ---- Smart item auto-suggest ----
+  // While typing/picking a name that's already in the saved catalog, quietly
+  // fill in its last-used rate (only if the rate is still untouched/0) so
+  // repeat items get typed even faster.
+  nameInput.addEventListener('input', function(){
+    const match = lookupItemInCatalog(this.value);
+    if(match && match.rate > 0 && (parseFloat(rateInput.value) || 0) === 0){
+      rateInput.value = match.rate;
+      calcTotal();
+    }
+  });
+  // On leaving the field, remember this item (and its rate) so it starts
+  // showing up as a suggestion — items typed more often float to the top.
+  nameInput.addEventListener('blur', function(){
+    recordItemUsage(this.value, parseFloat(rateInput.value) || 0);
+  });
 
   calcTotal();
 }
@@ -616,6 +655,54 @@ function generateBill(){
     // Auto-generate a fresh random bill number for the next bill
     generateRandomBillNo();
   });
+}
+
+// ---------------- SMART ITEM AUTO-SUGGEST (localStorage) ----------------
+// Learns which items get billed most often and offers them back as
+// suggestions (via the <datalist>), most-used first, along with their
+// last-used rate so repeat jobs are even faster to bill.
+const ITEM_CATALOG_KEY = 'avrok_item_catalog';
+
+function loadItemCatalog(){
+  try { return JSON.parse(localStorage.getItem(ITEM_CATALOG_KEY) || '{}'); }
+  catch(e){ return {}; }
+}
+
+function saveItemCatalog(catalog){
+  try { localStorage.setItem(ITEM_CATALOG_KEY, JSON.stringify(catalog)); }
+  catch(e){ console.warn('Item catalog storage not available in this environment:', e); }
+}
+
+function lookupItemInCatalog(name){
+  const key = (name || '').trim().toLowerCase();
+  if(!key) return null;
+  const catalog = loadItemCatalog();
+  return catalog[key] || null;
+}
+
+function recordItemUsage(name, rate){
+  name = (name || '').trim();
+  if(!name) return;
+  const catalog = loadItemCatalog();
+  const key = name.toLowerCase();
+  const existing = catalog[key] || { name: name, rate: 0, count: 0 };
+  existing.name = name; // keep the most recently typed capitalization
+  if(rate > 0) existing.rate = rate;
+  existing.count = (existing.count || 0) + 1;
+  catalog[key] = existing;
+  saveItemCatalog(catalog);
+  refreshItemDatalist();
+}
+
+function refreshItemDatalist(){
+  const datalist = document.getElementById('itemSuggestions');
+  if(!datalist) return;
+  const catalog = loadItemCatalog();
+  // Most frequently billed items appear first in the suggestion dropdown.
+  const entries = Object.values(catalog).sort((a,b) => (b.count||0) - (a.count||0));
+  datalist.innerHTML = entries.map(e =>
+    `<option value="${String(e.name).replace(/"/g,'&quot;')}"></option>`
+  ).join('');
 }
 
 // ---------------- BILL HISTORY (localStorage) ----------------
@@ -932,6 +1019,24 @@ function buildUpiUrl(total, billNo){
   return `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${total.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Bill No '+billNo)}`;
 }
 
+// ---------------- RANDOM QR COLOR THEMES ----------------
+// A different, professional color combination is picked automatically each
+// time the QR card is generated — keeps every bill's QR looking fresh while
+// staying dark/high-contrast enough to always scan reliably.
+const QR_COLOR_THEMES = [
+  { qr: '#0c1f4a', accent: '#f2a900', accent2: '#f26b00' }, // Navy & Gold
+  { qr: '#0f3d24', accent: '#2ecc71', accent2: '#0e7a3d' }, // Forest Green
+  { qr: '#4a0e0e', accent: '#e67e22', accent2: '#c0392b' }, // Maroon & Amber
+  { qr: '#2d0b4e', accent: '#9b59b6', accent2: '#6c3483' }, // Royal Purple
+  { qr: '#003f3f', accent: '#1abc9c', accent2: '#0f766e' }, // Teal & Emerald
+  { qr: '#1a1a2e', accent: '#e94560', accent2: '#c1121f' }, // Midnight & Crimson
+  { qr: '#3d2b1f', accent: '#d4a373', accent2: '#a9744f' }  // Coffee & Tan
+];
+
+function pickRandomQrTheme(){
+  return QR_COLOR_THEMES[Math.floor(Math.random() * QR_COLOR_THEMES.length)];
+}
+
 // QR button: ONLY generates and shows the QR full-screen for scanning.
 // It does NOT touch the bill or WhatsApp — that only happens when the
 // shopkeeper manually confirms payment was received (see confirmPaymentAndSend).
@@ -942,12 +1047,16 @@ function generateUPIQR(){
     return;
   }
   const billNo = document.getElementById('sno').value || '';
+  const custName = document.getElementById('custName').value || '';
   const upiUrl = buildUpiUrl(total, billNo);
 
-  // Size the QR to comfortably fit the screen (with room for the white
-  // padding around it) instead of a fixed size that can overflow on
-  // smaller phones.
-  const qrSize = Math.max(180, Math.min(window.innerWidth - 90, 300));
+  // Pick a fresh color combination automatically for this QR generation.
+  const theme = pickRandomQrTheme();
+
+  // Size the QR to comfortably fit inside the new branded card (max-width
+  // 340px with its own padding/border) instead of a fixed size that can
+  // overflow on smaller phones or look tiny on larger ones.
+  const qrSize = Math.max(170, Math.min(window.innerWidth - 130, 250));
 
   const qrDivFull = document.getElementById('qrcodeDivFull');
   qrDivFull.innerHTML = '';
@@ -955,11 +1064,58 @@ function generateUPIQR(){
     text: upiUrl,
     width: qrSize,
     height: qrSize,
-    colorDark: '#0c1f4a',
-    colorLight: '#ffffff'
+    colorDark: theme.qr,
+    colorLight: '#ffffff',
+    // High error-correction (up to ~30% of the code can be obscured and it
+    // still scans fine) — this is what lets us safely place a logo badge
+    // in the center without breaking the QR.
+    correctLevel: QRCode.CorrectLevel.H
   });
+
+  // Center "AVROK" logo badge on top of the QR, for a professional look.
+  const logoSize = Math.round(qrSize * 0.26);
+  const logo = document.createElement('div');
+  logo.style.cssText = `
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:${logoSize}px; height:${logoSize}px; background:#fff;
+    border:3px solid ${theme.qr}; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 6px rgba(0,0,0,0.25);
+  `;
+  logo.innerHTML = `<span style="font-weight:900; font-style:italic; color:${theme.qr}; font-size:${Math.round(logoSize*0.24)}px; letter-spacing:0.5px;">AVROK</span>`;
+  qrDivFull.appendChild(logo);
+
+  // Apply the same theme to the rest of the card so everything matches —
+  // border, divider, QR frame, and the AVROK / Total Amount text below.
+  document.getElementById('qrCardFull').style.borderColor = theme.accent;
+  document.getElementById('qrHeaderText').style.color = theme.qr;
+  document.getElementById('qrDivider').style.background = `linear-gradient(90deg, ${theme.accent}, ${theme.accent2})`;
+  qrDivFull.style.borderColor = theme.qr;
+  document.getElementById('qrAvrokLabel').style.color = theme.qr;
+  document.getElementById('qrTotalLabel').style.color = theme.accent2;
+  document.getElementById('qrAmountLine').style.color = theme.accent2;
+
   document.getElementById('upiAmountDisplayFull').textContent = total.toFixed(2);
+  document.getElementById('upiCustNameDisplay').textContent = custName ? `Customer: ${custName}` : '';
   document.getElementById('qrFullscreen').style.display = 'flex';
+}
+
+// ---------------- ENVIRONMENT DETECTION (Chrome tab vs packaged app) ----------------
+// Android's embedded WebView (the kind Median/GoNative/etc. wrap native apps
+// around) tags its User-Agent with "; wv)" right after the Android version —
+// e.g. "...Android 13; wv) AppleWebKit...". A normal Chrome browser tab never
+// carries that "wv" marker. This lets the page tell "I'm running inside the
+// packaged AVROK app" apart from "someone opened this HTML directly in
+// Chrome to test it" — WITHOUT needing any Median-specific JS bridge.
+//
+// Why this matters: Chrome's OWN download manager silently blocks a second
+// automatic download fired from the same tap (a Chrome browser-UI safety
+// heuristic, not an Android/WebView-level rule). Inside the packaged app —
+// a native WebView with storage permission already granted — that
+// Chrome-only restriction generally does not apply, so both the QR image
+// and the Bill PDF can safely download together from one tap.
+function isRunningInsidePackagedApp(){
+  return /; ?wv\)/i.test(navigator.userAgent);
 }
 
 // Called when the shopkeeper taps "Payment Received" after confirming the
@@ -974,9 +1130,18 @@ function confirmPaymentAndSend(){
   }
   // Open the tab immediately (synchronously) so Chrome doesn't block it as a popup.
   const waWindow = window.open('', '_blank');
-  closeQRFullscreen();
-  generateBill().then(()=>{
-    downloadQR();
+  const inApp = isRunningInsidePackagedApp();
+
+  // Inside the packaged AVROK app: download the QR card too (two files,
+  // one tap). In a plain Chrome tab: skip it here — Chrome would silently
+  // drop this second download anyway, so the shopkeeper should use the
+  // separate "⬇ QR Image Download Karein" button first if they want it.
+  const qrStep = inApp ? downloadQR() : Promise.resolve();
+
+  qrStep.then(()=>{
+    closeQRFullscreen();
+    return generateBill();
+  }).then(()=>{
     const message = buildBillMessage();
     const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
     if (waWindow) { waWindow.location.href = waUrl; }
@@ -989,27 +1154,33 @@ function closeQRFullscreen(){
 }
 
 function downloadQR(){
-  const qrDiv = document.getElementById('qrcodeDivFull');
-  // Important: check <canvas> FIRST. The QRCode.js library always draws the
-  // real QR onto a <canvas>; it also adds a fallback <img> tag, but that
-  // img's src is only filled in if makeImage() is explicitly called (which
-  // this app never does) — so querying img first grabbed an empty/broken
-  // image, which is why the download silently failed before.
-  const el = qrDiv.querySelector('canvas') || qrDiv.querySelector('img');
-  if(!el) return;
-  const link = document.createElement('a');
+  // Capture the WHOLE branded card (heading + QR + logo badge + AVROK +
+  // Total Amount line) so the downloaded/shared image looks like a
+  // complete, professional payment card — not just the bare QR square.
+  // Returns the html2canvas promise so callers can chain if needed.
+  const qrCard = document.getElementById('qrCardFull');
   const billNo = document.getElementById('sno').value || 'bill';
-  link.download = `AVROK_UPI_QR_${billNo}.png`;
-  link.href = el.tagName === 'CANVAS' ? el.toDataURL('image/png') : el.src;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  return html2canvas(qrCard, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
+    if(canvas.width === 0 || canvas.height === 0){
+      console.warn('QR card had zero size when captured — skipping empty download.');
+      return;
+    }
+    const link = document.createElement('a');
+    link.download = `AVROK_UPI_QR_${billNo}.png`;
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }).catch(e => {
+    console.warn('QR download failed:', e);
+  });
 }
 
 // init
 updateLiveClock();
 setInterval(updateLiveClock, 1000);
 generateRandomBillNo();
+refreshItemDatalist();
 addRow();
 </script>
 </body>
