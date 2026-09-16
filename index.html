@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>AVROK AC Electrician - Bill Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #eef1f5;
+    margin: 0;
+    padding: 20px;
+    padding-top: max(20px, env(safe-area-inset-top, 20px));
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
+    color: #14213d;
+  }
+  .app-wrap {
+    max-width: 950px;
+    margin: 0 auto;
+  }
+  h1 {
+    text-align: center;
+    color: #14213d;
+    font-size: 22px;
+  }
+  .panel {
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .panel h2 {
+    font-size: 16px;
+    margin-top: 0;
+    color: #1a3e8c;
+    border-bottom: 2px solid #f2a900;
+    padding-bottom: 6px;
+  }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px 20px;
+  }
+  label {
+    font-size: 13px;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+  }
+  input[type=text], input[type=number], input[type=date] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd3e1;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .field { margin-bottom: 10px; }
+
+  table#itemsTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+  }
+  #itemsTable th {
+    background: #dfe8f7;
+    padding: 8px;
+    font-size: 13px;
+    text-align: left;
+  }
+  #itemsTable td {
+    padding: 6px;
+    border-bottom: 1px solid #eee;
+  }
+  #itemsTable td input { padding: 6px 8px; font-size: 13px; }
+  .amt-cell { text-align: right; font-weight: 600; padding-right: 10px; }
+  .rm-btn {
+    background: #e63946;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .add-row-btn {
+    margin-top: 10px;
+    background: #1a3e8c;
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .generate-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(90deg,#f2a900,#f26b00);
+    color: #14213d;
+    font-weight: 800;
+    font-size: 17px;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  .generate-btn:hover { opacity: .92; }
+  .whatsapp-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(90deg,#25D366,#128C7E);
+    color: #fff;
+    font-weight: 800;
+    font-size: 15px;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+  .whatsapp-btn:hover { opacity: .92; }
+  .upi-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(90deg,#5f27cd,#1a3e8c);
+    color: #fff;
+    font-weight: 800;
+    font-size: 15px;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+  .upi-btn:hover { opacity: .92; }
+  .history-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(90deg,#2c3e50,#1a3e8c);
+    color: #fff;
+    font-weight: 800;
+    font-size: 15px;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+  .history-btn:hover { opacity: .92; }
+  .total-preview {
+    text-align: right;
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+
+  /* ---------- INVOICE TEMPLATE (hidden, used for PDF capture) ---------- */
+  #invoiceCapture {
+    position: fixed;
+    left: -9999px;
+    top: 0;
+    width: 900px;
+    background: #fff;
+    border: 3px solid #1a3e8c;
+    padding: 15px;
+    font-family: Arial, sans-serif;
+    color: #14213d;
+  }
+  .inv-header { display: flex; justify-content: space-between; align-items: flex-start; }
+  .inv-logo {
+    font-weight: 900;
+    font-size: 26px;
+    letter-spacing: 1px;
+    font-style: italic;
+    color: #0055a5;
+  }
+  .inv-toll { text-align: right; font-size: 12px; font-weight: 700; }
+  .inv-titlebar {
+    text-align: center;
+    background: #14213d;
+    color: #fff;
+    display: inline-block;
+    padding: 4px 30px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin: 4px auto;
+  }
+  .inv-titlebar-wrap { text-align: center; }
+  .inv-company {
+    text-align: center;
+    font-size: 30px;
+    font-weight: 900;
+    color: #14213d;
+    margin: 4px 0 0 0;
+  }
+  .inv-subcompany {
+    text-align: center;
+    font-size: 26px;
+    font-weight: 900;
+    color: #1a3e8c;
+    margin: 0 0 4px 0;
+  }
+  .inv-tagline {
+    text-align: center;
+    background: linear-gradient(90deg,#f2a900,#ffd166);
+    font-weight: 800;
+    font-size: 13px;
+    padding: 5px;
+    color: #14213d;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .inv-services {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .inv-service {
+    flex: 1;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 6px 2px;
+  }
+  .inv-address {
+    background: #14213d;
+    color: #fff;
+    text-align: center;
+    padding: 6px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .inv-contact {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .inv-box { border: 2px solid #1a3e8c; border-radius: 4px; padding: 10px 14px; margin-bottom: 0; }
+  .inv-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; font-weight: 600; }
+  .inv-row span.line { font-weight: 400; }
+  table#invTable {
+    width: 100%;
+    border-collapse: collapse;
+    border: 2px solid #1a3e8c;
+    border-top: none;
+    font-size: 13px;
+  }
+  #invTable th {
+    background: #dfe8f7;
+    border: 1px solid #1a3e8c;
+    padding: 6px;
+    font-size: 12px;
+  }
+  #invTable td {
+    border: 1px solid #b9c6e0;
+    padding: 6px 8px;
+    height: 22px;
+  }
+  #invTable td.num { text-align: right; }
+  .inv-total-row td { font-weight: 800; background: #f5f7fb; }
+  .inv-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 14px;
+    font-size: 12px;
+  }
+  .inv-for { text-align: right; font-weight: 800; }
+  .inv-sign { display: flex; justify-content: space-between; margin-top: 30px; font-size: 12px; }
+  .inv-badge { width: 95px; height: 95px; object-fit: contain; }
+  .inv-thankyou-logo { width: 200px; height: auto; object-fit: contain; }
+</style>
+</head>
+<body>
+<div class="app-wrap">
+  <h1>⚡ AVROK AC Electrician - Bill Generator</h1>
+
+  <div class="panel">
+    <h2>Customer &amp; Bill Details</h2>
+    <div class="grid2">
+      <div class="field">
+        <label>S. No. (Bill No.)</label>
+        <input type="text" id="sno" value="2436" readonly style="background:#f0f3f9; font-weight:700; color:#1a3e8c;">
+      </div>
+      <div class="field">
+        <label>Date &amp; Time (Auto — Live)</label>
+        <input type="text" id="billDateTime" readonly style="background:#f0f3f9; font-weight:700; color:#1a3e8c;">
+      </div>
+      <div class="field">
+        <label>M/s (Customer Name)</label>
+        <input type="text" id="custName" placeholder="Customer ka naam">
+      </div>
+      <div class="field">
+        <label>Customer Mobile Number (WhatsApp)</label>
+        <input type="tel" id="custMobile" placeholder="10-digit mobile number" maxlength="10">
+      </div>
+      <div class="field">
+        <label>Address</label>
+        <input type="text" id="custAddr" placeholder="Customer ka address">
+      </div>
+      <div class="field">
+        <label>Product</label>
+        <input type="text" id="product" placeholder="e.g. Split AC">
+      </div>
+      <div class="field">
+        <label>Model</label>
+        <input type="text" id="model" placeholder="Model number">
+      </div>
+      <div class="field">
+        <label>Unit Serial No. 1</label>
+        <input type="text" id="serial1">
+      </div>
+      <div class="field">
+        <label>Unit Serial No. 2</label>
+        <input type="text" id="serial2">
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Items / Particulars (Saman ka naam aur price)</h2>
+    <table id="itemsTable">
+      <thead>
+        <tr>
+          <th style="width:6%">S.No</th>
+          <th>Particulars</th>
+          <th style="width:12%">Qty</th>
+          <th style="width:14%">Rate</th>
+          <th style="width:16%">Amount</th>
+          <th style="width:8%"></th>
+        </tr>
+      </thead>
+      <tbody id="itemsBody"></tbody>
+    </table>
+    <button class="add-row-btn" onclick="addRow()">+ Row Add Karein</button>
+    <div class="total-preview">Total: ₹ <span id="totalPreview">0.00</span></div>
+  </div>
+
+  <button class="upi-btn" onclick="generateUPIQR()">💳 UPI Payment QR Generate Karein (Full Screen)</button>
+
+  <button class="whatsapp-btn" onclick="sendWhatsApp()">📱 Bill PDF WhatsApp Par Bhejein</button>
+
+  <button class="generate-btn" onclick="generateBill()">📄 GENERATE BILL (PDF Download)</button>
+
+  <button class="history-btn" onclick="openBillHistory()">📋 Sabhi Bills Ka Record Dekhein</button>
+  <p style="font-size:12px; color:#777; text-align:center; margin-top:6px;">This software was created by Md. Amir Hamza, a core member of the Avrok Foundation.</p>
+</div>
+
+<!-- Bill history overlay -->
+<div id="historyOverlay" style="display:none; position:fixed; inset:0; background:rgba(12,31,74,0.92); z-index:9998; padding:20px; padding-top:max(20px, env(safe-area-inset-top, 20px)); overflow-y:auto;">
+  <div style="max-width:600px; margin:0 auto; background:#fff; border-radius:10px; padding:18px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2 style="margin:0; color:#1a3e8c; font-size:18px;">📋 Bill History</h2>
+      <button onclick="closeBillHistory()" style="background:#e63946; color:#fff; border:none; border-radius:50%; width:34px; height:34px; font-size:16px; cursor:pointer;">✕</button>
+    </div>
+
+    <div style="background:#fff8e6; border:1px solid #f2d98a; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#7a5a00;">
+      ⚠️ Agar app/browser ka data kabhi clear ho jaye to yahan ki list khali dikh sakti hai. Isliye time-time par <b>"Backup Save"</b> zaroor dabate rahein — wo ek file phone ke Downloads mein save kar deta hai jo hamesha surakshit rehti hai, aur usi se <b>"Backup Load"</b> se history wapas la sakte hain.
+    </div>
+
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="add-row-btn" style="flex:1; margin-top:0;" onclick="backupHistoryToFile(false)">💾 Backup Save Karein</button>
+      <button class="add-row-btn" style="flex:1; margin-top:0; background:#1a7a3e;" onclick="triggerRestoreFile()">📂 Backup Load Karein</button>
+    </div>
+    <input type="file" id="restoreFileInput" accept="application/json" style="display:none;" onchange="restoreHistoryFromFile(event)">
+
+    <div id="historyList"></div>
+    <button class="rm-btn" style="width:100%; padding:10px; margin-top:10px;" onclick="clearBillHistory()">🗑 Saara History Delete Karein</button>
+  </div>
+</div>
+
+<!-- Full-screen QR overlay for easy scanning -->
+<div id="qrFullscreen" style="display:none; position:fixed; inset:0; background:#0c1f4a; z-index:9999; flex-direction:column; align-items:center; justify-content:center; padding:20px; padding-top:max(50px, env(safe-area-inset-top, 50px));">
+  <button onclick="closeQRFullscreen()" style="position:absolute; top:18px; right:18px; background:#e63946; color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:18px; cursor:pointer;">✕</button>
+  <h2 style="color:#fff; margin-bottom:10px; text-align:center;">Scan &amp; Pay via any UPI App</h2>
+  <div id="qrcodeDivFull" style="background:#fff; padding:16px; border-radius:16px; max-width:90vw; box-sizing:border-box; display:flex; align-items:center; justify-content:center;"></div>
+  <p style="color:#ffd54f; font-size:26px; font-weight:800; margin-top:18px;">Amount: ₹ <span id="upiAmountDisplayFull">0.00</span></p>
+  <p style="color:#fff; font-size:14px;">UPI ID: 9155944307@ybl</p>
+  <button class="add-row-btn" onclick="downloadQR()" style="margin-top:10px; max-width:340px;">⬇ QR Image Download Karein</button>
+  <button class="whatsapp-btn" onclick="confirmPaymentAndSend()" style="max-width:340px; margin-top:14px;">✅ Payment Mil Gaya - Bill WhatsApp Par Bhejein</button>
+</div>
+
+<!-- Hidden invoice template used for PDF capture -->
+<div id="invoiceCapture">
+  <div class="inv-header">
+    <div class="inv-logo">AVROK</div>
+    <div class="inv-toll">TOLL FREE<br>📞 1860 425 4555</div>
+  </div>
+  <div class="inv-titlebar-wrap"><span class="inv-titlebar">BILL / CASH MEMO</span></div>
+  <div class="inv-company">AVROK AC ELECTRICIAN</div>
+  <div class="inv-subcompany">— ITI ENGINEER —</div>
+  <div class="inv-tagline">⚡ REPAIRING • INSTALLATION • MAINTENANCE SERVICE CENTER ⚡</div>
+
+  <div class="inv-services">
+    <div class="inv-service">🏠 House Wiring</div>
+    <div class="inv-service">🌀 Installation &amp; Fitting</div>
+    <div class="inv-service">❄️ AC Repairing &amp; Service</div>
+    <div class="inv-service">🔧 Motor, Pump &amp; Starter</div>
+    <div class="inv-service">🧰 Fault Finding &amp; Repairing</div>
+    <div class="inv-service">🔨 All Electrical Works</div>
+  </div>
+
+  <div class="inv-address">📍 Khansa Mandi Shakti Park, Near Rock Ford School, Gurugram (HR)</div>
+  <div class="inv-contact">📞 M : +91-9155944307 &nbsp;|&nbsp; ✉ Email : akacelectrician@gmail.com</div>
+
+  <div class="inv-box">
+    <div class="inv-row"><span>S. No. &nbsp;<b id="p_sno" style="color:red;"></b></span><span style="text-align:right;">Date : <span id="p_date" class="line"></span><br>Time : <span id="p_time" class="line"></span></span></div>
+    <div class="inv-row"><span>M/s. <span id="p_cust" class="line"></span></span></div>
+    <div class="inv-row"><span>Add. <span id="p_addr" class="line"></span></span></div>
+  </div>
+  <div class="inv-box" style="border-top:none;">
+    <div class="inv-row"><span>Product : <span id="p_product" class="line"></span></span><span>Model : <span id="p_model" class="line"></span></span></div>
+    <div class="inv-row"><span>Unit Serial No. 1 : <span id="p_serial1" class="line"></span></span><span>2 : <span id="p_serial2" class="line"></span></span></div>
+  </div>
+
+  <table id="invTable">
+    <thead>
+      <tr><th style="width:6%">S.No</th><th>Particulars</th><th style="width:10%">Qty</th><th style="width:14%">Rate (₹)</th><th style="width:18%">Amount (₹)</th></tr>
+    </thead>
+    <tbody id="p_itemsBody"></tbody>
+    <tr class="inv-total-row"><td colspan="4" style="text-align:right;">TOTAL</td><td class="num" id="p_total"></td></tr>
+  </table>
+
+  <div class="inv-footer">
+    <!-- Quality Service 100% Satisfaction badge -->
+    <img class="inv-badge" src="data:image/jpeg;base64,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" alt="Quality Service 100% Satisfaction">
+
+    <!-- Thank You logo -->
+    <img class="inv-thankyou-logo" src="data:image/jpeg;base64,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" alt="Thank You For Your Trust">
+
+    <div class="inv-for">For AVROK AC ELECTRICIAN<br><span style="font-size:20px;">ITI ENGINEER</span><br><span style="font-size:10px; font-weight:400;">Your Satisfaction, Our Responsibility</span></div>
+  </div>
+
+  <div class="inv-sign">
+    <div>________________________<br>Receiver Signature</div>
+    <div>________________________<br>Auth. Signature</div>
+  </div>
+</div>
+
+<script>
+let rowCount = 0;
+
+function addRow(){
+  rowCount++;
+  const tbody = document.getElementById('itemsBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td style="text-align:center;">${rowCount}</td>
+    <td><input type="text" class="itemName" placeholder="Saman ka naam" enterkeyhint="next"></td>
+    <td><input type="number" class="itemQty" value="1" min="0" oninput="calcTotal()" enterkeyhint="next"></td>
+    <td><input type="number" class="itemRate" value="0" min="0" step="0.01" oninput="calcTotal()" enterkeyhint="next"></td>
+    <td class="amt-cell"><span class="itemAmt">0.00</span></td>
+    <td><button class="rm-btn" onclick="removeRow(this)">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+  const nameInput = tr.querySelector('.itemName');
+  const qtyInput = tr.querySelector('.itemQty');
+  const rateInput = tr.querySelector('.itemRate');
+
+  qtyInput.addEventListener('input', calcTotal);
+  rateInput.addEventListener('input', calcTotal);
+
+  // Auto-select existing value on focus so the default (1 or 0) disappears
+  // the moment the user starts typing — whether they tapped in or arrived
+  // here via the keyboard's "next" (➡️) button.
+  qtyInput.addEventListener('focus', function(){ this.select(); });
+  rateInput.addEventListener('focus', function(){ this.select(); });
+
+  // Keyboard "next" (➡️) button navigation: Naam -> Qty -> Rate -> next row's Naam
+  nameInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'name'));
+  qtyInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'qty'));
+  rateInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'rate'));
+
+  calcTotal();
+}
+
+function handleFieldEnter(e, type){
+  if(e.key !== 'Enter') return;
+  e.preventDefault();
+  const tr = e.target.closest('tr');
+  if(type === 'name'){
+    const qtyInput = tr.querySelector('.itemQty');
+    qtyInput.focus();
+    qtyInput.select();
+  } else if(type === 'qty'){
+    const rateInput = tr.querySelector('.itemRate');
+    rateInput.focus();
+    rateInput.select();
+  } else if(type === 'rate'){
+    const nextTr = tr.nextElementSibling;
+    if(nextTr){
+      nextTr.querySelector('.itemName').focus();
+    } else {
+      addRow();
+      const rows = document.querySelectorAll('#itemsBody tr');
+      rows[rows.length-1].querySelector('.itemName').focus();
+    }
+  }
+}
+
+function removeRow(btn){
+  btn.closest('tr').remove();
+  renumberRows();
+  calcTotal();
+}
+
+function renumberRows(){
+  const rows = document.querySelectorAll('#itemsBody tr');
+  rowCount = rows.length;
+  rows.forEach((r,i) => r.children[0].textContent = i+1);
+}
+
+function calcTotal(){
+  let total = 0;
+  document.querySelectorAll('#itemsBody tr').forEach(tr=>{
+    const qty = parseFloat(tr.querySelector('.itemQty').value) || 0;
+    const rate = parseFloat(tr.querySelector('.itemRate').value) || 0;
+    const amt = qty * rate;
+    tr.querySelector('.itemAmt').textContent = amt.toFixed(2);
+    total += amt;
+  });
+  document.getElementById('totalPreview').textContent = total.toFixed(2);
+  return total;
+}
+
+function generateBill(){
+  // Fill invoice template with entered data
+  const snoInput = document.getElementById('sno');
+  const currentSno = snoInput.value;
+  document.getElementById('p_sno').textContent = currentSno;
+  // Live current date & time is stamped automatically at the moment of generation
+  const nowParts = formatNowParts();
+  document.getElementById('p_date').textContent = nowParts.date;
+  document.getElementById('p_time').textContent = nowParts.time;
+  document.getElementById('p_cust').textContent = document.getElementById('custName').value;
+  document.getElementById('p_addr').textContent = document.getElementById('custAddr').value;
+  document.getElementById('p_product').textContent = document.getElementById('product').value;
+  document.getElementById('p_model').textContent = document.getElementById('model').value;
+  document.getElementById('p_serial1').textContent = document.getElementById('serial1').value;
+  document.getElementById('p_serial2').textContent = document.getElementById('serial2').value;
+
+  const pBody = document.getElementById('p_itemsBody');
+  pBody.innerHTML = '';
+  let total = 0;
+  const itemList = [];
+  document.querySelectorAll('#itemsBody tr').forEach((tr, i)=>{
+    const name = tr.querySelector('.itemName').value || '-';
+    const qty = parseFloat(tr.querySelector('.itemQty').value) || 0;
+    const rate = parseFloat(tr.querySelector('.itemRate').value) || 0;
+    const amt = qty * rate;
+    total += amt;
+    itemList.push({ name, qty, rate, amt });
+    const row = document.createElement('tr');
+    row.innerHTML = `<td style="text-align:center;">${i+1}</td><td>${name}</td><td class="num">${qty}</td><td class="num">₹${rate.toFixed(2)}</td><td class="num">₹${amt.toFixed(2)}</td>`;
+    pBody.appendChild(row);
+  });
+  // pad empty rows for visual look (min 6 rows)
+  const minRows = 6;
+  const existing = document.querySelectorAll('#itemsBody tr').length;
+  for(let i=existing; i<minRows; i++){
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>`;
+    pBody.appendChild(row);
+  }
+  document.getElementById('p_total').textContent = '₹' + total.toFixed(2);
+
+  // Capture and export as PDF
+  const el = document.getElementById('invoiceCapture');
+  el.style.left = '0px';
+  el.style.top = '-9999px';
+
+  window.lastGeneratedBillNo = currentSno;
+  window.lastGeneratedTotal = total;
+  window.lastGeneratedCustName = document.getElementById('custName').value;
+  window.lastGeneratedItems = itemList;
+
+  // Save this bill into local history (works once opened in a real browser/APK;
+  // Claude's own preview sandbox blocks storage, so history won't persist there)
+  saveBillToHistory({
+    billNo: currentSno,
+    dateTime: `${nowParts.date}, ${nowParts.time}`,
+    custName: document.getElementById('custName').value,
+    custMobile: document.getElementById('custMobile').value,
+    address: document.getElementById('custAddr').value,
+    product: document.getElementById('product').value,
+    model: document.getElementById('model').value,
+    items: itemList,
+    total: total
+  });
+
+  return html2canvas(el, {scale: 1.5, backgroundColor: '#ffffff'}).then(canvas => {
+    el.style.left = '-9999px';
+    const imgData = canvas.toDataURL('image/jpeg', 0.8);
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+    const pageWidth = 210;
+    const imgWidth = pageWidth - 20;
+    const imgHeight = canvas.height * imgWidth / canvas.width;
+    pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight, undefined, 'FAST');
+    downloadPDF(pdf, `AVROK_Bill_${currentSno || 'bill'}.pdf`);
+
+    // Auto-generate a fresh random bill number for the next bill
+    generateRandomBillNo();
+  });
+}
+
+// ---------------- BILL HISTORY (localStorage) ----------------
+const BILL_HISTORY_KEY = 'avrok_bill_history';
+
+function saveBillToHistory(record){
+  try {
+    const existing = JSON.parse(localStorage.getItem(BILL_HISTORY_KEY) || '[]');
+    existing.unshift(record); // newest first
+    localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(existing));
+  } catch(e){
+    console.warn('Bill history storage not available in this environment:', e);
+  }
+}
+
+function getBillHistory(){
+  try {
+    return JSON.parse(localStorage.getItem(BILL_HISTORY_KEY) || '[]');
+  } catch(e){
+    return null; // storage blocked (e.g. Claude preview sandbox)
+  }
+}
+
+function openBillHistory(){
+  const history = getBillHistory();
+  const listEl = document.getElementById('historyList');
+  listEl.innerHTML = '';
+
+  if (history === null){
+    listEl.innerHTML = '<p style="text-align:center; color:#e63946; padding:20px;">Is environment mein storage available nahi hai (Claude preview sandbox). Ye feature file ko real browser ya APK mein khol kar hi kaam karega.</p>';
+  } else if (history.length === 0){
+    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">Abhi tak koi bill generate nahi hua hai.</p>';
+  } else {
+    history.forEach((rec, idx) => {
+      const card = document.createElement('div');
+      card.style.cssText = 'border:1px solid #dde3ee; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:#fafcff;';
+      const itemsSummary = (rec.items || []).map(it => `${it.name} (₹${it.amt.toFixed(2)})`).join(', ');
+      card.innerHTML = `
+        <div style="display:flex; justify-content:space-between; font-weight:700; color:#1a3e8c;">
+          <span>Bill No. ${rec.billNo}</span><span>₹${rec.total.toFixed(2)}</span>
+        </div>
+        <div style="font-size:12px; color:#555; margin:4px 0;">${rec.dateTime}</div>
+        <div style="font-size:13px; font-weight:600;">${rec.custName || 'Customer'} ${rec.custMobile ? '('+rec.custMobile+')' : ''}</div>
+        <div style="font-size:12px; color:#777; margin:4px 0;">${itemsSummary}</div>
+        <button class="add-row-btn" style="margin-top:6px; padding:6px 12px; font-size:12px;" onclick="redownloadBill(${idx})">⬇ PDF Dobara Download Karein</button>
+      `;
+      listEl.appendChild(card);
+    });
+  }
+  document.getElementById('historyOverlay').style.display = 'flex';
+}
+
+function closeBillHistory(){
+  document.getElementById('historyOverlay').style.display = 'none';
+}
+
+function clearBillHistory(){
+  if(confirm('Kya aap sach mein saara bill history delete karna chahte hain? Ye wapas nahi aayega.')){
+    try { localStorage.removeItem(BILL_HISTORY_KEY); } catch(e){}
+    openBillHistory();
+  }
+}
+
+// ---------------- PERMANENT FILE BACKUP (survives app/browser data clearing) ----------------
+// Browser storage (localStorage) can get wiped when an app's data is cleared,
+// when a WebView session ends, or when Chrome's site data is reset. A real
+// downloaded file in the phone's Downloads folder does NOT get touched by any
+// of that, so this is the reliable way to keep bills safe long-term.
+
+function backupHistoryToFile(silent){
+  const history = getBillHistory();
+  if(history === null){
+    if(!silent) alert('Is environment mein storage available nahi hai, isliye backup ke liye koi data nahi hai.');
+    return;
+  }
+  if(history.length === 0){
+    if(!silent) alert('Abhi tak koi bill generate nahi hua hai, backup karne ke liye kuch nahi hai.');
+    return;
+  }
+  const stamp = formatNow().replace(/[/,: ]/g, '-');
+  downloadTextFile(JSON.stringify(history, null, 2), `AVROK_Bill_History_Backup_${stamp}.json`, 'application/json');
+  if(!silent){
+    alert('Backup file aapke phone ke Downloads folder mein save ho gayi hai. Isse hamesha sambhal kar rakhein - isi file se aap purani history wapas la sakte hain.');
+  }
+}
+
+function triggerRestoreFile(){
+  document.getElementById('restoreFileInput').click();
+}
+
+function restoreHistoryFromFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const imported = JSON.parse(e.target.result);
+      if(!Array.isArray(imported)) throw new Error('Invalid file');
+      const existing = getBillHistory() || [];
+      // Merge, avoiding exact duplicate bill numbers + dateTime
+      const existingKeys = new Set(existing.map(r => r.billNo + '|' + r.dateTime));
+      const merged = [...existing];
+      imported.forEach(rec => {
+        const key = rec.billNo + '|' + rec.dateTime;
+        if(!existingKeys.has(key)){
+          merged.push(rec);
+          existingKeys.add(key);
+        }
+      });
+      // newest first
+      merged.sort((a,b) => (b.dateTime || '').localeCompare(a.dateTime || ''));
+      try { localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(merged)); } catch(e2){}
+      alert(`${imported.length} bills backup file se load ho gaye. Total ab ${merged.length} bills dikh rahe hain.`);
+      openBillHistory();
+    } catch(err){
+      alert('Ye file sahi format mein nahi hai. Kripya wahi backup file select karein jo isi app se pehle save ki thi.');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function redownloadBill(idx){
+  const history = getBillHistory();
+  if(!history || !history[idx]) return;
+  const rec = history[idx];
+
+  document.getElementById('p_sno').textContent = rec.billNo;
+  const [d, t] = rec.dateTime.split(', ');
+  document.getElementById('p_date').textContent = d;
+  document.getElementById('p_time').textContent = t;
+  document.getElementById('p_cust').textContent = rec.custName;
+  document.getElementById('p_addr').textContent = rec.address;
+  document.getElementById('p_product').textContent = rec.product;
+  document.getElementById('p_model').textContent = rec.model;
+  document.getElementById('p_serial1').textContent = '';
+  document.getElementById('p_serial2').textContent = '';
+
+  const pBody = document.getElementById('p_itemsBody');
+  pBody.innerHTML = '';
+  (rec.items || []).forEach((it, i) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td style="text-align:center;">${i+1}</td><td>${it.name}</td><td class="num">${it.qty}</td><td class="num">₹${it.rate.toFixed(2)}</td><td class="num">₹${it.amt.toFixed(2)}</td>`;
+    pBody.appendChild(row);
+  });
+  const minRows = 6;
+  for(let i=(rec.items||[]).length; i<minRows; i++){
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>`;
+    pBody.appendChild(row);
+  }
+  document.getElementById('p_total').textContent = '₹' + rec.total.toFixed(2);
+
+  const el = document.getElementById('invoiceCapture');
+  el.style.left = '0px';
+  el.style.top = '-9999px';
+
+  html2canvas(el, {scale: 1.5, backgroundColor: '#ffffff'}).then(canvas => {
+    el.style.left = '-9999px';
+    const imgData = canvas.toDataURL('image/jpeg', 0.8);
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+    const pageWidth = 210;
+    const imgWidth = pageWidth - 20;
+    const imgHeight = canvas.height * imgWidth / canvas.width;
+    pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight, undefined, 'FAST');
+    downloadPDF(pdf, `AVROK_Bill_${rec.billNo}.pdf`);
+  });
+}
+
+// ---------------- WEBVIEW-FRIENDLY DOWNLOAD HELPERS ----------------
+// Many simple "HTML to APK" wrapper tools don't implement download handling
+// for blob: URLs (which jsPDF's .save() and Blob-based downloads use by
+// default). Using a data: URI directly on the <a download> link works more
+// reliably across basic WebViews. This is a best-effort fix — some very
+// restrictive WebView wrappers may still block ANY programmatic download,
+// in which case a proper native/Capacitor rebuild is the only real fix.
+
+function downloadPDF(pdf, filename){
+  try {
+    const dataUri = pdf.output('datauristring');
+    const link = document.createElement('a');
+    link.href = dataUri;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch(e){
+    console.warn('data-URI download failed, falling back to default save():', e);
+    pdf.save(filename);
+  }
+}
+
+function downloadTextFile(content, filename, mimeType){
+  try {
+    const dataUri = `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`;
+    const link = document.createElement('a');
+    link.href = dataUri;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch(e){
+    console.warn('data-URI download failed:', e);
+  }
+}
+
+function formatNow(){
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  let h = d.getHours();
+  const min = String(d.getMinutes()).padStart(2,'0');
+  const sec = String(d.getSeconds()).padStart(2,'0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return `${dd}/${mm}/${yy}, ${h}:${min}:${sec} ${ampm}`;
+}
+
+function formatNowParts(){
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  let h = d.getHours();
+  const min = String(d.getMinutes()).padStart(2,'0');
+  const sec = String(d.getSeconds()).padStart(2,'0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return {
+    date: `${dd}/${mm}/${yy}`,
+    time: `${h}:${min}:${sec} ${ampm}`
+  };
+}
+
+function updateLiveClock(){
+  document.getElementById('billDateTime').value = formatNow();
+}
+
+function generateRandomBillNo(){
+  // Random 4-digit bill number so user never has to type it
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  document.getElementById('sno').value = rand;
+}
+
+function toRoman(num){
+  const romanMap = [
+    [1000,'m'],[900,'cm'],[500,'d'],[400,'cd'],[100,'c'],[90,'xc'],
+    [50,'l'],[40,'xl'],[10,'x'],[9,'ix'],[5,'v'],[4,'iv'],[1,'i']
+  ];
+  let result = '';
+  for (const [val, sym] of romanMap){
+    while(num >= val){ result += sym; num -= val; }
+  }
+  return result;
+}
+
+function buildBillMessage(){
+  const custName = window.lastGeneratedCustName || 'Customer';
+  const billNo = window.lastGeneratedBillNo || '';
+  const total = (window.lastGeneratedTotal || 0).toFixed(2);
+  const items = window.lastGeneratedItems || [];
+
+  // Note: WhatsApp/Android auto-highlights a "₹" glued directly to a number
+  // (like ₹330.00) as a tappable amount. Adding a space after ₹ breaks that
+  // pattern so item lines stay plain — while the Total is left glued on
+  // purpose so it's the one that stands out.
+
+  // ---- English section ----
+  let en = '';
+  en += `Namaste ${custName},\n`;
+  en += `AVROK AC Electrician (ITI Engineer) - Bill No. ${billNo}\n`;
+  items.forEach((it, idx) => {
+    en += `${toRoman(idx+1)}. ${it.name} (Qty ${it.qty}, Rate ₹ ${it.rate.toFixed(2)}) — ₹ ${it.amt.toFixed(2)}\n`;
+  });
+  en += `*Total Amount: ₹${total}*\n`;
+  en += `Thank you!`;
+
+  // ---- Hindi section ----
+  let hi = '';
+  hi += `नमस्ते ${custName},\n`;
+  hi += `एवरोक एसी इलेक्ट्रीशियन (आईटीआई इंजीनियर) - बिल नं. ${billNo}\n`;
+  items.forEach((it, idx) => {
+    hi += `${toRoman(idx+1)}. ${it.name} (मात्रा ${it.qty}, दर ₹ ${it.rate.toFixed(2)}) — ₹ ${it.amt.toFixed(2)}\n`;
+  });
+  hi += `*कुल राशि: ₹${total}*\n`;
+  hi += `Thank you!`;
+
+  return `${en}\n\n${hi}`;
+}
+
+function sendWhatsApp(){
+  const mobile = document.getElementById('custMobile').value.trim();
+  if(!/^\d{10}$/.test(mobile)){
+    alert('Kripya sahi 10-digit customer mobile number dalein.');
+    return;
+  }
+  // Open the tab immediately (synchronously, inside the click handler) so
+  // Chrome's popup blocker treats it as a direct result of the user's tap.
+  // We fill in the actual WhatsApp URL a moment later once the PDF is ready.
+  const waWindow = window.open('', '_blank');
+  generateBill().then(()=>{
+    const message = buildBillMessage();
+    const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
+    if (waWindow) { waWindow.location.href = waUrl; }
+    else { window.open(waUrl, '_blank'); }
+  });
+}
+
+function buildUpiUrl(total, billNo){
+  const upiId = '9155944307@ybl';
+  const payeeName = 'AVROK AC ELECTRICIAN';
+  return `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${total.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Bill No '+billNo)}`;
+}
+
+// QR button: ONLY generates and shows the QR full-screen for scanning.
+// It does NOT touch the bill or WhatsApp — that only happens when the
+// shopkeeper manually confirms payment was received (see confirmPaymentAndSend).
+function generateUPIQR(){
+  const total = calcTotal();
+  if(total <= 0){
+    alert('Pehle items add karke bill amount set karein.');
+    return;
+  }
+  const billNo = document.getElementById('sno').value || '';
+  const upiUrl = buildUpiUrl(total, billNo);
+
+  // Size the QR to comfortably fit the screen (with room for the white
+  // padding around it) instead of a fixed size that can overflow on
+  // smaller phones.
+  const qrSize = Math.max(180, Math.min(window.innerWidth - 90, 300));
+
+  const qrDivFull = document.getElementById('qrcodeDivFull');
+  qrDivFull.innerHTML = '';
+  new QRCode(qrDivFull, {
+    text: upiUrl,
+    width: qrSize,
+    height: qrSize,
+    colorDark: '#0c1f4a',
+    colorLight: '#ffffff'
+  });
+  document.getElementById('upiAmountDisplayFull').textContent = total.toFixed(2);
+  document.getElementById('qrFullscreen').style.display = 'flex';
+}
+
+// Called when the shopkeeper taps "Payment Received" after confirming the
+// UPI payment came in (checked via their own bank/UPI app notification —
+// a webpage cannot detect this automatically since the payment happens in
+// a separate app with no callback to the browser).
+function confirmPaymentAndSend(){
+  const mobile = document.getElementById('custMobile').value.trim();
+  if(!/^\d{10}$/.test(mobile)){
+    alert('WhatsApp bhejne ke liye customer ka 10-digit mobile number dalein.');
+    return;
+  }
+  // Open the tab immediately (synchronously) so Chrome doesn't block it as a popup.
+  const waWindow = window.open('', '_blank');
+  closeQRFullscreen();
+  generateBill().then(()=>{
+    downloadQR();
+    const message = buildBillMessage();
+    const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
+    if (waWindow) { waWindow.location.href = waUrl; }
+    else { window.open(waUrl, '_blank'); }
+  });
+}
+
+function closeQRFullscreen(){
+  document.getElementById('qrFullscreen').style.display = 'none';
+}
+
+function downloadQR(){
+  const qrDiv = document.getElementById('qrcodeDivFull');
+  // Important: check <canvas> FIRST. The QRCode.js library always draws the
+  // real QR onto a <canvas>; it also adds a fallback <img> tag, but that
+  // img's src is only filled in if makeImage() is explicitly called (which
+  // this app never does) — so querying img first grabbed an empty/broken
+  // image, which is why the download silently failed before.
+  const el = qrDiv.querySelector('canvas') || qrDiv.querySelector('img');
+  if(!el) return;
+  const link = document.createElement('a');
+  const billNo = document.getElementById('sno').value || 'bill';
+  link.download = `AVROK_UPI_QR_${billNo}.png`;
+  link.href = el.tagName === 'CANVAS' ? el.toDataURL('image/png') : el.src;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+// init
+updateLiveClock();
+setInterval(updateLiveClock, 1000);
+generateRandomBillNo();
+addRow();
+</script>
+</body>
+</html>
