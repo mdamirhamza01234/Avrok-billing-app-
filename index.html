@@ -348,9 +348,6 @@
     </table>
     <button class="add-row-btn" onclick="addRow()">+ Row Add Karein</button>
     <div class="total-preview">Total: ₹ <span id="totalPreview">0.00</span></div>
-    <!-- Smart auto-suggest: items typed most often across past bills show up
-         here automatically, sorted by how frequently they've been used. -->
-    <datalist id="itemSuggestions"></datalist>
   </div>
 
   <button class="upi-btn" onclick="generateUPIQR()">💳 UPI Payment QR Generate Karein (Full Screen)</button>
@@ -379,7 +376,18 @@
       <button class="add-row-btn" style="flex:1; margin-top:0;" onclick="backupHistoryToFile(false)">💾 Backup Save Karein</button>
       <button class="add-row-btn" style="flex:1; margin-top:0; background:#1a7a3e;" onclick="triggerRestoreFile()">📂 Backup Load Karein</button>
     </div>
-    <input type="file" id="restoreFileInput" accept="application/json" style="display:none;" onchange="restoreHistoryFromFile(event)">
+    <input type="file" id="restoreFileInput" accept=".json,application/json" style="display:none;" onchange="restoreHistoryFromFile(event)">
+
+    <div id="historySelectToolbar" style="display:none; align-items:center; justify-content:space-between; gap:8px; background:#eef1f5; border-radius:8px; padding:8px 10px; margin-bottom:10px;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#1a3e8c;">
+        <input type="checkbox" id="historySelectAllCheckbox" onclick="toggleSelectAllHistory()" style="width:18px; height:18px;">
+        Sab Select Karein
+      </label>
+      <div style="display:flex; gap:6px;">
+        <button id="historyDeleteSelectedBtn" onclick="deleteSelectedHistory()" style="background:#e63946; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;">🗑 Delete Selected (0)</button>
+        <button onclick="cancelHistorySelection()" style="background:#777; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;">Cancel</button>
+      </div>
+    </div>
 
     <div id="historyList"></div>
     <button class="rm-btn" style="width:100%; padding:10px; margin-top:10px;" onclick="clearBillHistory()">🗑 Saara History Delete Karein</button>
@@ -387,29 +395,20 @@
 </div>
 
 <!-- Full-screen QR overlay for easy scanning -->
-<div id="qrFullscreen" style="display:none; position:fixed; inset:0; background:#0c1f4a; z-index:9999; flex-direction:column; align-items:center; justify-content:flex-start; padding:20px; padding-top:max(50px, env(safe-area-inset-top, 50px)); padding-bottom:max(30px, env(safe-area-inset-bottom, 30px)); overflow-y:auto;">
-  <button onclick="closeQRFullscreen()" style="position:absolute; top:18px; right:18px; background:#e63946; color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:18px; cursor:pointer; z-index:2;">✕</button>
+<div id="qrFullscreen" style="display:none; position:fixed; inset:0; background:#0c1f4a; z-index:9999; flex-direction:column; align-items:center; justify-content:center; padding:20px; padding-top:max(50px, env(safe-area-inset-top, 50px));">
+  <button onclick="closeQRFullscreen()" style="position:absolute; top:18px; right:18px; background:#e63946; color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:18px; cursor:pointer;">✕</button>
 
-  <!-- This card is exactly what gets captured & downloaded/shared as the QR image -->
-  <div id="qrCardFull" style="background:#ffffff; border-radius:18px; padding:20px 18px 24px; width:100%; max-width:340px; box-sizing:border-box; border:4px solid #f2a900; box-shadow:0 8px 22px rgba(0,0,0,0.35); margin:0 auto;">
-    <div style="text-align:center;">
-      <div id="qrHeaderText" style="color:#0c1f4a; font-weight:900; font-size:19px; letter-spacing:0.5px; line-height:1.4;">AVROK<br>AC TECHNICIAN AND ELECTRICIAN</div>
-      <div id="qrDivider" style="width:70px; height:3px; background:linear-gradient(90deg,#f2a900,#f26b00); margin:8px auto 0; border-radius:2px;"></div>
-    </div>
-
-    <div id="qrcodeDivFull" style="position:relative; background:#fff; padding:12px; border-radius:14px; border:2px solid #1a3e8c; box-sizing:border-box; display:flex; align-items:center; justify-content:center; margin:16px auto 0;"></div>
-
-    <div style="text-align:center; margin-top:16px;">
-      <div id="qrAvrokLabel" style="color:#0c1f4a; font-weight:900; font-size:22px; letter-spacing:1.5px;">AVROK</div>
-      <div id="qrTotalLabel" style="color:#1a3e8c; font-size:13px; font-weight:700; margin-top:6px;">Total Amount is</div>
-      <div id="qrAmountLine" style="color:#f26b00; font-size:28px; font-weight:900; margin-top:2px;">₹ <span id="upiAmountDisplayFull">0.00</span></div>
-    </div>
+  <div style="text-align:center; margin-bottom:6px;">
+    <div style="color:#ffd54f; font-weight:900; font-size:20px; letter-spacing:1px;">AVROK AC ELECTRICIAN</div>
+    <div style="color:#fff; font-size:14px;">Scan &amp; Pay via any UPI App</div>
   </div>
 
-  <div style="text-align:center; margin-top:14px;">
-    <p style="color:#fff; font-size:14px; margin:0; font-weight:600;">Scan &amp; Pay via any UPI App</p>
-    <p style="color:#ffd54f; font-size:14px; font-weight:600; margin:4px 0 0 0;" id="upiCustNameDisplay"></p>
-    <p style="color:#c9d2e6; font-size:12px; margin:2px 0 0 0;">UPI ID: 9155944307@ybl</p>
+  <div id="qrcodeDivFull" style="position:relative; background:#fff; padding:16px; border-radius:16px; max-width:90vw; box-sizing:border-box; display:flex; align-items:center; justify-content:center; margin-top:10px;"></div>
+
+  <div style="text-align:center; margin-top:18px;">
+    <p style="color:#ffd54f; font-size:26px; font-weight:800; margin:0;">₹ <span id="upiAmountDisplayFull">0.00</span></p>
+    <p style="color:#fff; font-size:15px; font-weight:600; margin:4px 0 0 0;" id="upiCustNameDisplay"></p>
+    <p style="color:#c9d2e6; font-size:13px; margin:2px 0 0 0;">UPI ID: 9155944307@ybl</p>
   </div>
 
   <button class="add-row-btn" onclick="downloadQR()" style="margin-top:14px; max-width:340px;">⬇ QR Image Download Karein</button>
@@ -482,7 +481,7 @@ function addRow(){
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td style="text-align:center;">${rowCount}</td>
-    <td><input type="text" class="itemName" list="itemSuggestions" placeholder="Saman ka naam" enterkeyhint="next" autocomplete="off"></td>
+    <td><input type="text" class="itemName" placeholder="Saman ka naam" enterkeyhint="next"></td>
     <td><input type="number" class="itemQty" value="1" min="0" oninput="calcTotal()" enterkeyhint="next"></td>
     <td><input type="number" class="itemRate" value="0" min="0" step="0.01" oninput="calcTotal()" enterkeyhint="next"></td>
     <td class="amt-cell"><span class="itemAmt">0.00</span></td>
@@ -506,23 +505,6 @@ function addRow(){
   nameInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'name'));
   qtyInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'qty'));
   rateInput.addEventListener('keydown', (e)=> handleFieldEnter(e, 'rate'));
-
-  // ---- Smart item auto-suggest ----
-  // While typing/picking a name that's already in the saved catalog, quietly
-  // fill in its last-used rate (only if the rate is still untouched/0) so
-  // repeat items get typed even faster.
-  nameInput.addEventListener('input', function(){
-    const match = lookupItemInCatalog(this.value);
-    if(match && match.rate > 0 && (parseFloat(rateInput.value) || 0) === 0){
-      rateInput.value = match.rate;
-      calcTotal();
-    }
-  });
-  // On leaving the field, remember this item (and its rate) so it starts
-  // showing up as a suggestion — items typed more often float to the top.
-  nameInput.addEventListener('blur', function(){
-    recordItemUsage(this.value, parseFloat(rateInput.value) || 0);
-  });
 
   calcTotal();
 }
@@ -657,54 +639,6 @@ function generateBill(){
   });
 }
 
-// ---------------- SMART ITEM AUTO-SUGGEST (localStorage) ----------------
-// Learns which items get billed most often and offers them back as
-// suggestions (via the <datalist>), most-used first, along with their
-// last-used rate so repeat jobs are even faster to bill.
-const ITEM_CATALOG_KEY = 'avrok_item_catalog';
-
-function loadItemCatalog(){
-  try { return JSON.parse(localStorage.getItem(ITEM_CATALOG_KEY) || '{}'); }
-  catch(e){ return {}; }
-}
-
-function saveItemCatalog(catalog){
-  try { localStorage.setItem(ITEM_CATALOG_KEY, JSON.stringify(catalog)); }
-  catch(e){ console.warn('Item catalog storage not available in this environment:', e); }
-}
-
-function lookupItemInCatalog(name){
-  const key = (name || '').trim().toLowerCase();
-  if(!key) return null;
-  const catalog = loadItemCatalog();
-  return catalog[key] || null;
-}
-
-function recordItemUsage(name, rate){
-  name = (name || '').trim();
-  if(!name) return;
-  const catalog = loadItemCatalog();
-  const key = name.toLowerCase();
-  const existing = catalog[key] || { name: name, rate: 0, count: 0 };
-  existing.name = name; // keep the most recently typed capitalization
-  if(rate > 0) existing.rate = rate;
-  existing.count = (existing.count || 0) + 1;
-  catalog[key] = existing;
-  saveItemCatalog(catalog);
-  refreshItemDatalist();
-}
-
-function refreshItemDatalist(){
-  const datalist = document.getElementById('itemSuggestions');
-  if(!datalist) return;
-  const catalog = loadItemCatalog();
-  // Most frequently billed items appear first in the suggestion dropdown.
-  const entries = Object.values(catalog).sort((a,b) => (b.count||0) - (a.count||0));
-  datalist.innerHTML = entries.map(e =>
-    `<option value="${String(e.name).replace(/"/g,'&quot;')}"></option>`
-  ).join('');
-}
-
 // ---------------- BILL HISTORY (localStorage) ----------------
 const BILL_HISTORY_KEY = 'avrok_bill_history';
 
@@ -726,33 +660,134 @@ function getBillHistory(){
   }
 }
 
+let historySelectionMode = false;
+let historySelectedSet = new Set();
+let historyLongPressTimer = null;
+let historySuppressClick = false;
+
 function openBillHistory(){
+  historySelectionMode = false;
+  historySelectedSet.clear();
+  renderBillHistory();
+  document.getElementById('historyOverlay').style.display = 'flex';
+}
+
+function renderBillHistory(){
   const history = getBillHistory();
   const listEl = document.getElementById('historyList');
+  const toolbar = document.getElementById('historySelectToolbar');
   listEl.innerHTML = '';
 
   if (history === null){
+    toolbar.style.display = 'none';
     listEl.innerHTML = '<p style="text-align:center; color:#e63946; padding:20px;">Is environment mein storage available nahi hai (Claude preview sandbox). Ye feature file ko real browser ya APK mein khol kar hi kaam karega.</p>';
-  } else if (history.length === 0){
+    return;
+  }
+  if (history.length === 0){
+    toolbar.style.display = 'none';
     listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">Abhi tak koi bill generate nahi hua hai.</p>';
-  } else {
-    history.forEach((rec, idx) => {
-      const card = document.createElement('div');
-      card.style.cssText = 'border:1px solid #dde3ee; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:#fafcff;';
-      const itemsSummary = (rec.items || []).map(it => `${it.name} (₹${it.amt.toFixed(2)})`).join(', ');
-      card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; font-weight:700; color:#1a3e8c;">
-          <span>Bill No. ${rec.billNo}</span><span>₹${rec.total.toFixed(2)}</span>
+    return;
+  }
+
+  toolbar.style.display = historySelectionMode ? 'flex' : 'none';
+  document.getElementById('historySelectAllCheckbox').checked = historySelectedSet.size === history.length;
+  document.getElementById('historyDeleteSelectedBtn').textContent = `🗑 Delete Selected (${historySelectedSet.size})`;
+
+  history.forEach((rec, idx) => {
+    const card = document.createElement('div');
+    const isSelected = historySelectedSet.has(idx);
+    card.style.cssText = `border:1px solid ${isSelected ? '#1a3e8c' : '#dde3ee'}; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:${isSelected ? '#e8edfb' : '#fafcff'}; display:flex; gap:10px; align-items:flex-start; cursor:pointer;`;
+    const itemsSummary = (rec.items || []).map(it => `${it.name} (₹${it.amt.toFixed(2)})`).join(', ');
+
+    card.innerHTML = `
+      ${historySelectionMode ? `<input type="checkbox" ${isSelected ? 'checked' : ''} style="margin-top:4px; width:20px; height:20px; flex-shrink:0; pointer-events:none;">` : ''}
+      <div style="flex:1;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:700; color:#1a3e8c;">
+          <span>Bill No. ${rec.billNo}</span>
+          <span style="display:flex; align-items:center; gap:8px;">
+            <span>₹${rec.total.toFixed(2)}</span>
+            ${!historySelectionMode ? `<button data-role="delete" style="background:#e63946; color:#fff; border:none; border-radius:6px; width:26px; height:26px; font-size:13px; cursor:pointer; flex-shrink:0;">🗑</button>` : ''}
+          </span>
         </div>
         <div style="font-size:12px; color:#555; margin:4px 0;">${rec.dateTime}</div>
         <div style="font-size:13px; font-weight:600;">${rec.custName || 'Customer'} ${rec.custMobile ? '('+rec.custMobile+')' : ''}</div>
         <div style="font-size:12px; color:#777; margin:4px 0;">${itemsSummary}</div>
-        <button class="add-row-btn" style="margin-top:6px; padding:6px 12px; font-size:12px;" onclick="redownloadBill(${idx})">⬇ PDF Dobara Download Karein</button>
-      `;
-      listEl.appendChild(card);
+        <div style="font-size:11px; color:${historySelectionMode ? '#1a3e8c' : '#1a7a3e'}; margin-top:6px;">${historySelectionMode ? '☑️ Select karne ke liye tap karein' : '👆 Tap karein - PDF khulega · Delete ke liye dabakar rakhein (hold)'}</div>
+      </div>
+    `;
+
+    const delBtn = card.querySelector('[data-role="delete"]');
+    if(delBtn){
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteHistoryRecord(idx);
+      });
+    }
+
+    // Long-press (hold) detection — works for both touch and mouse
+    const startPress = () => {
+      historyLongPressTimer = setTimeout(() => {
+        historyLongPressTimer = null;
+        historySuppressClick = true;
+        historySelectionMode = true;
+        historySelectedSet.add(idx);
+        renderBillHistory();
+      }, 500);
+    };
+    const cancelPress = () => {
+      if(historyLongPressTimer){ clearTimeout(historyLongPressTimer); historyLongPressTimer = null; }
+    };
+    card.addEventListener('touchstart', startPress, {passive:true});
+    card.addEventListener('touchend', cancelPress);
+    card.addEventListener('touchmove', cancelPress);
+    card.addEventListener('mousedown', startPress);
+    card.addEventListener('mouseup', cancelPress);
+    card.addEventListener('mouseleave', cancelPress);
+
+    card.addEventListener('click', () => {
+      if(historySuppressClick){ historySuppressClick = false; return; }
+      if(historySelectionMode){
+        if(historySelectedSet.has(idx)) historySelectedSet.delete(idx);
+        else historySelectedSet.add(idx);
+        renderBillHistory();
+      } else {
+        redownloadBill(idx);
+      }
     });
+
+    listEl.appendChild(card);
+  });
+}
+
+function toggleSelectAllHistory(){
+  const history = getBillHistory() || [];
+  const checkbox = document.getElementById('historySelectAllCheckbox');
+  if(checkbox.checked){
+    historySelectedSet = new Set(history.map((_, i) => i));
+  } else {
+    historySelectedSet.clear();
   }
-  document.getElementById('historyOverlay').style.display = 'flex';
+  renderBillHistory();
+}
+
+function deleteSelectedHistory(){
+  if(historySelectedSet.size === 0){
+    alert('Pehle kam se kam ek bill select karein.');
+    return;
+  }
+  if(!confirm(`${historySelectedSet.size} bill(s) delete karein? Ye wapas nahi aayega.`)) return;
+  let history = getBillHistory() || [];
+  history = history.filter((_, idx) => !historySelectedSet.has(idx));
+  try { localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(history)); } catch(e){}
+  historySelectionMode = false;
+  historySelectedSet.clear();
+  renderBillHistory();
+}
+
+function cancelHistorySelection(){
+  historySelectionMode = false;
+  historySelectedSet.clear();
+  renderBillHistory();
 }
 
 function closeBillHistory(){
@@ -762,6 +797,16 @@ function closeBillHistory(){
 function clearBillHistory(){
   if(confirm('Kya aap sach mein saara bill history delete karna chahte hain? Ye wapas nahi aayega.')){
     try { localStorage.removeItem(BILL_HISTORY_KEY); } catch(e){}
+    openBillHistory();
+  }
+}
+
+function deleteHistoryRecord(idx){
+  const history = getBillHistory();
+  if(!history || !history[idx]) return;
+  if(confirm(`Bill No. ${history[idx].billNo} ko history se delete karein?`)){
+    history.splice(idx, 1);
+    try { localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(history)); } catch(e){}
     openBillHistory();
   }
 }
@@ -1019,24 +1064,6 @@ function buildUpiUrl(total, billNo){
   return `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${total.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Bill No '+billNo)}`;
 }
 
-// ---------------- RANDOM QR COLOR THEMES ----------------
-// A different, professional color combination is picked automatically each
-// time the QR card is generated — keeps every bill's QR looking fresh while
-// staying dark/high-contrast enough to always scan reliably.
-const QR_COLOR_THEMES = [
-  { qr: '#0c1f4a', accent: '#f2a900', accent2: '#f26b00' }, // Navy & Gold
-  { qr: '#0f3d24', accent: '#2ecc71', accent2: '#0e7a3d' }, // Forest Green
-  { qr: '#4a0e0e', accent: '#e67e22', accent2: '#c0392b' }, // Maroon & Amber
-  { qr: '#2d0b4e', accent: '#9b59b6', accent2: '#6c3483' }, // Royal Purple
-  { qr: '#003f3f', accent: '#1abc9c', accent2: '#0f766e' }, // Teal & Emerald
-  { qr: '#1a1a2e', accent: '#e94560', accent2: '#c1121f' }, // Midnight & Crimson
-  { qr: '#3d2b1f', accent: '#d4a373', accent2: '#a9744f' }  // Coffee & Tan
-];
-
-function pickRandomQrTheme(){
-  return QR_COLOR_THEMES[Math.floor(Math.random() * QR_COLOR_THEMES.length)];
-}
-
 // QR button: ONLY generates and shows the QR full-screen for scanning.
 // It does NOT touch the bill or WhatsApp — that only happens when the
 // shopkeeper manually confirms payment was received (see confirmPaymentAndSend).
@@ -1050,13 +1077,10 @@ function generateUPIQR(){
   const custName = document.getElementById('custName').value || '';
   const upiUrl = buildUpiUrl(total, billNo);
 
-  // Pick a fresh color combination automatically for this QR generation.
-  const theme = pickRandomQrTheme();
-
-  // Size the QR to comfortably fit inside the new branded card (max-width
-  // 340px with its own padding/border) instead of a fixed size that can
-  // overflow on smaller phones or look tiny on larger ones.
-  const qrSize = Math.max(170, Math.min(window.innerWidth - 130, 250));
+  // Size the QR to comfortably fit the screen (with room for the white
+  // padding around it) instead of a fixed size that can overflow on
+  // smaller phones.
+  const qrSize = Math.max(180, Math.min(window.innerWidth - 90, 300));
 
   const qrDivFull = document.getElementById('qrcodeDivFull');
   qrDivFull.innerHTML = '';
@@ -1064,7 +1088,7 @@ function generateUPIQR(){
     text: upiUrl,
     width: qrSize,
     height: qrSize,
-    colorDark: theme.qr,
+    colorDark: '#0c1f4a',
     colorLight: '#ffffff',
     // High error-correction (up to ~30% of the code can be obscured and it
     // still scans fine) — this is what lets us safely place a logo badge
@@ -1078,44 +1102,16 @@ function generateUPIQR(){
   logo.style.cssText = `
     position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:${logoSize}px; height:${logoSize}px; background:#fff;
-    border:3px solid ${theme.qr}; border-radius:10px;
+    border:3px solid #0c1f4a; border-radius:10px;
     display:flex; align-items:center; justify-content:center;
     box-shadow:0 2px 6px rgba(0,0,0,0.25);
   `;
-  logo.innerHTML = `<span style="font-weight:900; font-style:italic; color:${theme.qr}; font-size:${Math.round(logoSize*0.24)}px; letter-spacing:0.5px;">AVROK</span>`;
+  logo.innerHTML = `<span style="font-weight:900; font-style:italic; color:#0c1f4a; font-size:${Math.round(logoSize*0.24)}px; letter-spacing:0.5px;">AVROK</span>`;
   qrDivFull.appendChild(logo);
-
-  // Apply the same theme to the rest of the card so everything matches —
-  // border, divider, QR frame, and the AVROK / Total Amount text below.
-  document.getElementById('qrCardFull').style.borderColor = theme.accent;
-  document.getElementById('qrHeaderText').style.color = theme.qr;
-  document.getElementById('qrDivider').style.background = `linear-gradient(90deg, ${theme.accent}, ${theme.accent2})`;
-  qrDivFull.style.borderColor = theme.qr;
-  document.getElementById('qrAvrokLabel').style.color = theme.qr;
-  document.getElementById('qrTotalLabel').style.color = theme.accent2;
-  document.getElementById('qrAmountLine').style.color = theme.accent2;
 
   document.getElementById('upiAmountDisplayFull').textContent = total.toFixed(2);
   document.getElementById('upiCustNameDisplay').textContent = custName ? `Customer: ${custName}` : '';
   document.getElementById('qrFullscreen').style.display = 'flex';
-}
-
-// ---------------- ENVIRONMENT DETECTION (Chrome tab vs packaged app) ----------------
-// Android's embedded WebView (the kind Median/GoNative/etc. wrap native apps
-// around) tags its User-Agent with "; wv)" right after the Android version —
-// e.g. "...Android 13; wv) AppleWebKit...". A normal Chrome browser tab never
-// carries that "wv" marker. This lets the page tell "I'm running inside the
-// packaged AVROK app" apart from "someone opened this HTML directly in
-// Chrome to test it" — WITHOUT needing any Median-specific JS bridge.
-//
-// Why this matters: Chrome's OWN download manager silently blocks a second
-// automatic download fired from the same tap (a Chrome browser-UI safety
-// heuristic, not an Android/WebView-level rule). Inside the packaged app —
-// a native WebView with storage permission already granted — that
-// Chrome-only restriction generally does not apply, so both the QR image
-// and the Bill PDF can safely download together from one tap.
-function isRunningInsidePackagedApp(){
-  return /; ?wv\)/i.test(navigator.userAgent);
 }
 
 // Called when the shopkeeper taps "Payment Received" after confirming the
@@ -1130,18 +1126,9 @@ function confirmPaymentAndSend(){
   }
   // Open the tab immediately (synchronously) so Chrome doesn't block it as a popup.
   const waWindow = window.open('', '_blank');
-  const inApp = isRunningInsidePackagedApp();
-
-  // Inside the packaged AVROK app: download the QR card too (two files,
-  // one tap). In a plain Chrome tab: skip it here — Chrome would silently
-  // drop this second download anyway, so the shopkeeper should use the
-  // separate "⬇ QR Image Download Karein" button first if they want it.
-  const qrStep = inApp ? downloadQR() : Promise.resolve();
-
-  qrStep.then(()=>{
-    closeQRFullscreen();
-    return generateBill();
-  }).then(()=>{
+  closeQRFullscreen();
+  generateBill().then(()=>{
+    downloadQR();
     const message = buildBillMessage();
     const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
     if (waWindow) { waWindow.location.href = waUrl; }
@@ -1154,25 +1141,18 @@ function closeQRFullscreen(){
 }
 
 function downloadQR(){
-  // Capture the WHOLE branded card (heading + QR + logo badge + AVROK +
-  // Total Amount line) so the downloaded/shared image looks like a
-  // complete, professional payment card — not just the bare QR square.
-  // Returns the html2canvas promise so callers can chain if needed.
-  const qrCard = document.getElementById('qrCardFull');
+  const qrDiv = document.getElementById('qrcodeDivFull');
   const billNo = document.getElementById('sno').value || 'bill';
-  return html2canvas(qrCard, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
-    if(canvas.width === 0 || canvas.height === 0){
-      console.warn('QR card had zero size when captured — skipping empty download.');
-      return;
-    }
+  // Capture the whole box (QR + the AVROK logo badge on top of it) so the
+  // downloaded image looks exactly like what's shown on screen, not just
+  // the bare QR without the logo.
+  html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
     const link = document.createElement('a');
     link.download = `AVROK_UPI_QR_${billNo}.png`;
     link.href = canvas.toDataURL('image/png');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }).catch(e => {
-    console.warn('QR download failed:', e);
   });
 }
 
@@ -1180,7 +1160,6 @@ function downloadQR(){
 updateLiveClock();
 setInterval(updateLiveClock, 1000);
 generateRandomBillNo();
-refreshItemDatalist();
 addRow();
 </script>
 </body>
