@@ -1070,17 +1070,10 @@ function generateCustomerRecordPDF(){
   const stamp = formatNow().replace(/[/,: ]/g, '-');
   const filename = `AVROK_Customer_Record_${stamp}.pdf`;
 
-  // Open the PDF inside the app (new tab / in-app PDF viewer) instead of
-  // silently downloading it, so the user can view it right away.
-  try {
-    const blobUrl = pdf.output('bloburl');
-    const win = window.open(blobUrl, '_blank');
-    if(!win){
-      downloadPDF(pdf, filename);
-    }
-  } catch(e){
-    downloadPDF(pdf, filename);
-  }
+  // Download directly with a proper AVROK-style filename. (window.open on a
+  // blob URL was unreliable in this webview — it showed a blank black screen
+  // and saved the file under a generic "generated.pdf" name instead.)
+  downloadPDF(pdf, filename);
 }
 
 function openSearchBill(){
