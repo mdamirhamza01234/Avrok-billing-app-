@@ -1020,12 +1020,13 @@ function generateCustomerRecordPDF(){
   let y = 18;
 
   const cols = [
-    { label: 'Sl.No',           x: marginX,       w: 14 },
-    { label: 'Customer Name',   x: marginX + 14,  w: 68 },
-    { label: 'Contact Number',  x: marginX + 84,  w: 38 },
-    { label: 'Date & Time',     x: marginX + 124, w: 55 },
-    { label: 'Bill No.',        x: marginX + 181, w: 28 },
-    { label: 'Total Amount',    x: marginX + 211, w: 40 }
+    { label: 'Sl.No',           x: marginX,       w: 12 },
+    { label: 'Customer Name',   x: marginX + 12,  w: 52 },
+    { label: 'Address',         x: marginX + 64,  w: 62 },
+    { label: 'Contact Number',  x: marginX + 126, w: 32 },
+    { label: 'Date & Time',     x: marginX + 158, w: 48 },
+    { label: 'Bill No.',        x: marginX + 206, w: 24 },
+    { label: 'Total Amount',    x: marginX + 230, w: 40 }
   ];
 
   function drawHeader(){
@@ -1060,10 +1061,11 @@ function generateCustomerRecordPDF(){
     }
     pdf.text(String(i + 1), cols[0].x, y);
     pdf.text((rec.custName || '-').toString(), cols[1].x, y, { maxWidth: cols[1].w - 2 });
-    pdf.text((rec.custMobile || '-').toString(), cols[2].x, y);
-    pdf.text((rec.dateTime || '-').toString(), cols[3].x, y);
-    pdf.text(String(rec.billNo || '-'), cols[4].x, y);
-    pdf.text('Rs. ' + (parseFloat(rec.total) || 0).toFixed(2), cols[5].x, y);
+    pdf.text((rec.address || '-').toString(), cols[2].x, y, { maxWidth: cols[2].w - 2 });
+    pdf.text((rec.custMobile || '-').toString(), cols[3].x, y);
+    pdf.text((rec.dateTime || '-').toString(), cols[4].x, y);
+    pdf.text(String(rec.billNo || '-'), cols[5].x, y);
+    pdf.text('Rs. ' + (parseFloat(rec.total) || 0).toFixed(2), cols[6].x, y);
     y += 7;
   });
 
