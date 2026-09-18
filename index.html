@@ -573,7 +573,13 @@
       <button class="add-row-btn" style="flex:1; margin-top:0;" onclick="backupHistoryToFile(false)">💾 Backup Save Karein</button>
       <button class="add-row-btn" style="flex:1; margin-top:0; background:#1a7a3e;" onclick="triggerRestoreFile()">📂 Backup Load Karein</button>
     </div>
-    <input type="file" id="restoreFileInput" accept=".json,application/json" style="display:none;" onchange="restoreHistoryFromFile(event)">
+    <!-- No "accept" filter here on purpose: filtering to .json makes
+    Android show its narrower, less-familiar file picker (Drive accounts
+    first, only JSON-type recents). Leaving it unfiltered shows the
+    normal, full "Recent files" list users already know how to use —
+    restoreHistoryFromFile() below still validates the JSON content and
+    shows a friendly error if the wrong file is picked. -->
+    <input type="file" id="restoreFileInput" style="display:none;" onchange="restoreHistoryFromFile(event)">
 
     <div id="historySelectToolbar" style="display:none; align-items:center; justify-content:space-between; gap:8px; background:#eef1f5; border-radius:8px; padding:8px 10px; margin-bottom:10px;">
       <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#1a3e8c;">
@@ -1616,13 +1622,33 @@ function generateUPIQR(){
   // smaller phones.
   const qrSize = Math.max(180, Math.min(window.innerWidth - 90, 300));
 
+  // Pick a fresh, high-contrast dark color each time a QR is generated, so
+  // every bill's QR looks a little different. Colors are curated (not
+  // fully random RGB) so the QR always stays dark enough against the
+  // white background to scan reliably.
+  const qrColorPalette = [
+    '#0c1f4a', // navy
+    '#7a1a00', // maroon
+    '#1b5e20', // dark green
+    '#4a148c', // deep purple
+    '#b71c1c', // dark red
+    '#004d40', // dark teal
+    '#3e2723', // dark brown
+    '#0d47a1', // deep blue
+    '#880e4f', // magenta
+    '#33691e', // olive green
+    '#37474f', // slate grey
+    '#e65100'  // burnt orange
+  ];
+  const qrColor = qrColorPalette[Math.floor(Math.random() * qrColorPalette.length)];
+
   const qrDivFull = document.getElementById('qrcodeDivFull');
   qrDivFull.innerHTML = '';
   new QRCode(qrDivFull, {
     text: upiUrl,
     width: qrSize,
     height: qrSize,
-    colorDark: '#0c1f4a',
+    colorDark: qrColor,
     colorLight: '#ffffff',
     // High error-correction (up to ~30% of the code can be obscured and it
     // still scans fine) — this is what lets us safely place a logo badge
@@ -1630,17 +1656,18 @@ function generateUPIQR(){
     correctLevel: QRCode.CorrectLevel.H
   });
 
-  // Center "AVROK" logo badge on top of the QR, for a professional look.
+  // Center "AVROK" logo badge on top of the QR, for a professional look —
+  // colored to match this generation's random QR color.
   const logoSize = Math.round(qrSize * 0.26);
   const logo = document.createElement('div');
   logo.style.cssText = `
     position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:${logoSize}px; height:${logoSize}px; background:#fff;
-    border:3px solid #0c1f4a; border-radius:10px;
+    border:3px solid ${qrColor}; border-radius:10px;
     display:flex; align-items:center; justify-content:center;
     box-shadow:0 2px 6px rgba(0,0,0,0.25);
   `;
-  logo.innerHTML = `<span style="font-weight:900; font-style:italic; color:#0c1f4a; font-size:${Math.round(logoSize*0.24)}px; letter-spacing:0.5px;">AVROK</span>`;
+  logo.innerHTML = `<span style="font-weight:900; font-style:italic; color:${qrColor}; font-size:${Math.round(logoSize*0.24)}px; letter-spacing:0.5px;">AVROK</span>`;
   qrDivFull.appendChild(logo);
 
   document.getElementById('upiAmountDisplayFull').textContent = total.toFixed(2);
@@ -1690,23 +1717,18 @@ function downloadQR(openFile = true){
   // BEFORE hiding the QR element — capturing after it's hidden produces
   // a blank/failed image.
   return html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
-    alert('DEBUG QR: canvas captured, size=' + canvas.width + 'x' + canvas.height);
     const filename = `AVROK_UPI_QR_${billNo}.png`;
     return new Promise(resolve => {
       canvas.toBlob(blob => {
-        alert('DEBUG QR: toBlob callback fired, blob=' + (blob ? (blob.size + ' bytes, type=' + blob.type) : 'NULL'));
         try {
           if (blob && window.median && window.median.share && window.median.share.downloadFile){
             const blobUrl = URL.createObjectURL(blob);
-            alert('DEBUG QR: calling median.share.downloadFile with url=' + blobUrl + ' open=' + openFile);
             window.median.share.downloadFile({ url: blobUrl, open: openFile });
             resolve();
             return;
-          } else {
-            alert('DEBUG QR: skipping median path — blob null? ' + !blob + ' median available? ' + !!(window.median && window.median.share));
           }
         } catch(e){
-          alert('DEBUG QR: median.share.downloadFile threw: ' + (e && e.message ? e.message : e));
+          console.warn('Median native QR download failed, falling back to data-URI download:', e);
         }
         try {
           const link = document.createElement('a');
@@ -1716,13 +1738,11 @@ function downloadQR(openFile = true){
           link.click();
           document.body.removeChild(link);
         } catch(e){
-          alert('DEBUG QR: fallback data-URI download also failed: ' + (e && e.message ? e.message : e));
+          console.warn('Fallback QR download also failed:', e);
         }
         resolve();
       }, 'image/png');
     });
-  }).catch(e => {
-    alert('DEBUG QR: html2canvas itself failed: ' + (e && e.message ? e.message : e));
   });
 }
 
