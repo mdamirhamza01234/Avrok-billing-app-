@@ -1660,9 +1660,15 @@ function confirmPaymentAndSend(){
   }
   // Open the tab immediately (synchronously) so Chrome doesn't block it as a popup.
   const waWindow = window.open('', '_blank');
-  closeQRFullscreen();
-  generateBill(false).then(()=>{
-    downloadQR(false);
+  // Capture the QR while it's still visible on screen (downloadQR reads
+  // its live DOM element), THEN hide the fullscreen QR overlay. Doing it
+  // in this order — instead of closing the overlay first — is what makes
+  // the QR image actually contain the QR code instead of coming out
+  // blank/empty.
+  downloadQR(false).then(() => {
+    closeQRFullscreen();
+    return generateBill(false);
+  }).then(()=>{
     const message = buildBillMessage();
     const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
     if (waWindow) { waWindow.location.href = waUrl; }
@@ -1679,26 +1685,33 @@ function downloadQR(openFile = true){
   const billNo = document.getElementById('sno').value || 'bill';
   // Capture the whole box (QR + the AVROK logo badge on top of it) so the
   // downloaded image looks exactly like what's shown on screen, not just
-  // the bare QR without the logo.
-  html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
+  // the bare QR without the logo. Returns a Promise so callers (like
+  // confirmPaymentAndSend) can wait for the capture to actually finish
+  // BEFORE hiding the QR element — capturing after it's hidden produces
+  // a blank/failed image.
+  return html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
     const filename = `AVROK_UPI_QR_${billNo}.png`;
-    canvas.toBlob(blob => {
-      try {
-        if (window.median && window.median.share && window.median.share.downloadFile){
-          const blobUrl = URL.createObjectURL(blob);
-          window.median.share.downloadFile({ url: blobUrl, open: openFile });
-          return;
+    return new Promise(resolve => {
+      canvas.toBlob(blob => {
+        try {
+          if (window.median && window.median.share && window.median.share.downloadFile){
+            const blobUrl = URL.createObjectURL(blob);
+            window.median.share.downloadFile({ url: blobUrl, open: openFile });
+            resolve();
+            return;
+          }
+        } catch(e){
+          console.warn('Median native QR download failed, falling back to data-URI download:', e);
         }
-      } catch(e){
-        console.warn('Median native QR download failed, falling back to data-URI download:', e);
-      }
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = canvas.toDataURL('image/png');
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }, 'image/png');
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        resolve();
+      }, 'image/png');
+    });
   });
 }
 
