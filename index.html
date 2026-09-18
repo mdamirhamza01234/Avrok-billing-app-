@@ -770,7 +770,7 @@ function calcTotal(){
   return total;
 }
 
-function generateBill(){
+function generateBill(openFile = true){
   // Fill invoice template with entered data
   const snoInput = document.getElementById('sno');
   const currentSno = snoInput.value;
@@ -855,7 +855,7 @@ function generateBill(){
     const imgWidth = pageWidth - 20;
     const imgHeight = canvas.height * imgWidth / canvas.width;
     pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight, undefined, 'FAST');
-    downloadPDF(pdf, buildBillFilename(currentSno, `${nowParts.date}, ${nowParts.time}`));
+    downloadPDF(pdf, buildBillFilename(currentSno, `${nowParts.date}, ${nowParts.time}`), openFile);
 
     // Auto-generate a fresh random bill number for the next bill
     generateRandomBillNo();
@@ -1435,7 +1435,26 @@ function redownloadBill(idx){
 // restrictive WebView wrappers may still block ANY programmatic download,
 // in which case a proper native/Capacitor rebuild is the only real fix.
 
-function downloadPDF(pdf, filename){
+function downloadPDF(pdf, filename, openFile = true){
+  // Prefer Median's own native download bridge when running inside the
+  // Median-wrapped app. Unlike a plain <a download> click (which the
+  // webview just treats as a raw data: navigation, with no native
+  // "Download complete" handling), median.share.downloadFile() goes
+  // through Median's real download system — and passing open:true makes
+  // an "Open with" dialog appear automatically the instant the download
+  // finishes. When openFile is false (WhatsApp-send flows), the file is
+  // still saved to Downloads, just without popping the PDF viewer open,
+  // so WhatsApp can come to the foreground uninterrupted.
+  try {
+    if (window.median && window.median.share && window.median.share.downloadFile){
+      const blob = pdf.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      window.median.share.downloadFile({ url: blobUrl, open: openFile });
+      return;
+    }
+  } catch(e){
+    console.warn('Median native download failed, falling back to data-URI download:', e);
+  }
   try {
     const dataUri = pdf.output('datauristring');
     const link = document.createElement('a');
@@ -1565,7 +1584,7 @@ function sendWhatsApp(){
   // Chrome's popup blocker treats it as a direct result of the user's tap.
   // We fill in the actual WhatsApp URL a moment later once the PDF is ready.
   const waWindow = window.open('', '_blank');
-  generateBill().then(()=>{
+  generateBill(false).then(()=>{
     const message = buildBillMessage();
     const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
     if (waWindow) { waWindow.location.href = waUrl; }
@@ -1642,8 +1661,8 @@ function confirmPaymentAndSend(){
   // Open the tab immediately (synchronously) so Chrome doesn't block it as a popup.
   const waWindow = window.open('', '_blank');
   closeQRFullscreen();
-  generateBill().then(()=>{
-    downloadQR();
+  generateBill(false).then(()=>{
+    downloadQR(false);
     const message = buildBillMessage();
     const waUrl = `https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`;
     if (waWindow) { waWindow.location.href = waUrl; }
@@ -1655,19 +1674,31 @@ function closeQRFullscreen(){
   document.getElementById('qrFullscreen').style.display = 'none';
 }
 
-function downloadQR(){
+function downloadQR(openFile = true){
   const qrDiv = document.getElementById('qrcodeDivFull');
   const billNo = document.getElementById('sno').value || 'bill';
   // Capture the whole box (QR + the AVROK logo badge on top of it) so the
   // downloaded image looks exactly like what's shown on screen, not just
   // the bare QR without the logo.
   html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
-    const link = document.createElement('a');
-    link.download = `AVROK_UPI_QR_${billNo}.png`;
-    link.href = canvas.toDataURL('image/png');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const filename = `AVROK_UPI_QR_${billNo}.png`;
+    canvas.toBlob(blob => {
+      try {
+        if (window.median && window.median.share && window.median.share.downloadFile){
+          const blobUrl = URL.createObjectURL(blob);
+          window.median.share.downloadFile({ url: blobUrl, open: openFile });
+          return;
+        }
+      } catch(e){
+        console.warn('Median native QR download failed, falling back to data-URI download:', e);
+      }
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }, 'image/png');
   });
 }
 
