@@ -1690,28 +1690,39 @@ function downloadQR(openFile = true){
   // BEFORE hiding the QR element — capturing after it's hidden produces
   // a blank/failed image.
   return html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
+    alert('DEBUG QR: canvas captured, size=' + canvas.width + 'x' + canvas.height);
     const filename = `AVROK_UPI_QR_${billNo}.png`;
     return new Promise(resolve => {
       canvas.toBlob(blob => {
+        alert('DEBUG QR: toBlob callback fired, blob=' + (blob ? (blob.size + ' bytes, type=' + blob.type) : 'NULL'));
         try {
-          if (window.median && window.median.share && window.median.share.downloadFile){
+          if (blob && window.median && window.median.share && window.median.share.downloadFile){
             const blobUrl = URL.createObjectURL(blob);
+            alert('DEBUG QR: calling median.share.downloadFile with url=' + blobUrl + ' open=' + openFile);
             window.median.share.downloadFile({ url: blobUrl, open: openFile });
             resolve();
             return;
+          } else {
+            alert('DEBUG QR: skipping median path — blob null? ' + !blob + ' median available? ' + !!(window.median && window.median.share));
           }
         } catch(e){
-          console.warn('Median native QR download failed, falling back to data-URI download:', e);
+          alert('DEBUG QR: median.share.downloadFile threw: ' + (e && e.message ? e.message : e));
         }
-        const link = document.createElement('a');
-        link.download = filename;
-        link.href = canvas.toDataURL('image/png');
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        try {
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = canvas.toDataURL('image/png');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch(e){
+          alert('DEBUG QR: fallback data-URI download also failed: ' + (e && e.message ? e.message : e));
+        }
         resolve();
       }, 'image/png');
     });
+  }).catch(e => {
+    alert('DEBUG QR: html2canvas itself failed: ' + (e && e.message ? e.message : e));
   });
 }
 
