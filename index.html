@@ -573,13 +573,11 @@
       <button class="add-row-btn" style="flex:1; margin-top:0;" onclick="backupHistoryToFile(false)">💾 Backup Save Karein</button>
       <button class="add-row-btn" style="flex:1; margin-top:0; background:#1a7a3e;" onclick="triggerRestoreFile()">📂 Backup Load Karein</button>
     </div>
-    <!-- No "accept" filter here on purpose: filtering to .json makes
-    Android show its narrower, less-familiar file picker (Drive accounts
-    first, only JSON-type recents). Leaving it unfiltered shows the
-    normal, full "Recent files" list users already know how to use —
-    restoreHistoryFromFile() below still validates the JSON content and
-    shows a friendly error if the wrong file is picked. -->
-    <input type="file" id="restoreFileInput" style="display:none;" onchange="restoreHistoryFromFile(event)">
+    <!-- Accepts both JSON (the actual backup format) and PDF (so bill PDFs
+    show up in the picker too, in case the user wants to browse those) —
+    restoreHistoryFromFile() below still only successfully restores from a
+    valid JSON backup file, and shows a friendly error for anything else. -->
+    <input type="file" id="restoreFileInput" accept=".json,application/json,.pdf,application/pdf" style="display:none;" onchange="restoreHistoryFromFile(event)">
 
     <div id="historySelectToolbar" style="display:none; align-items:center; justify-content:space-between; gap:8px; background:#eef1f5; border-radius:8px; padding:8px 10px; margin-bottom:10px;">
       <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#1a3e8c;">
@@ -631,6 +629,22 @@
 
   <button class="add-row-btn" onclick="downloadQR()" style="margin-top:14px; max-width:340px;">⬇ QR Image Download Karein</button>
   <button class="whatsapp-btn" onclick="confirmPaymentAndSend()" style="max-width:340px; margin-top:14px;">✅ Payment Mil Gaya - Bill WhatsApp Par Bhejein</button>
+</div>
+
+<!-- Hidden styled "receipt card" used ONLY for the downloaded QR image
+(title + orange border + navy-framed QR + amount) — kept off-screen and
+separate from the on-screen qrFullscreen view above so the on-screen dark
+theme isn't affected. downloadQR() captures this instead of the plain QR. -->
+<div id="qrDownloadCard" style="position:fixed; left:-9999px; top:0; width:375px; background:#ffffff; border:8px solid #f5a623; border-radius:28px; padding:30px 24px 26px; font-family:Arial, sans-serif; text-align:center; box-sizing:border-box;">
+  <div id="qrDownloadTitle" style="font-size:26px; font-weight:800; color:#0c1f4a; line-height:1.3; letter-spacing:0.5px;">AVROK<br>AC TECHNICIAN AND ELECTRICIAN</div>
+  <div style="width:90px; height:4px; background:#f5a623; margin:16px auto 24px; border-radius:2px;"></div>
+  <div style="border:2px solid #0c1f4a; border-radius:16px; padding:14px; display:inline-block; background:#fff;">
+    <div id="qrcodeDivDownload" style="position:relative; width:260px; height:260px;"></div>
+  </div>
+  <div id="qrDownloadName" style="margin-top:22px; font-size:28px; font-weight:800; font-style:italic; color:#0c1f4a;">AVROK</div>
+  <div style="margin-top:18px; font-size:17px; font-weight:700; color:#e65100;">Total Amount is</div>
+  <div id="qrDownloadAmount" style="font-size:36px; font-weight:900; color:#e65100; margin-top:2px;">₹ 0.00</div>
+  <div id="qrDownloadExtra" style="margin-top:16px;"></div>
 </div>
 
 <!-- Hidden invoice template used for PDF capture -->
@@ -1673,6 +1687,33 @@ function generateUPIQR(){
   document.getElementById('upiAmountDisplayFull').textContent = total.toFixed(2);
   document.getElementById('upiCustNameDisplay').textContent = custName ? `Customer: ${custName}` : '';
   document.getElementById('qrFullscreen').style.display = 'flex';
+
+  // Build the matching downloadable "receipt card" version — same random
+  // color, same UPI data — rendered into its own off-screen QR container
+  // so it doesn't disturb the on-screen dark-theme QR above.
+  const qrDivDownload = document.getElementById('qrcodeDivDownload');
+  qrDivDownload.innerHTML = '';
+  new QRCode(qrDivDownload, {
+    text: upiUrl,
+    width: 260,
+    height: 260,
+    colorDark: qrColor,
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  const dlLogo = document.createElement('div');
+  const dlLogoSize = Math.round(260 * 0.26);
+  dlLogo.style.cssText = `
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:${dlLogoSize}px; height:${dlLogoSize}px; background:#fff;
+    border:3px solid ${qrColor}; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 6px rgba(0,0,0,0.25);
+  `;
+  dlLogo.innerHTML = `<span style="font-weight:900; font-style:italic; color:${qrColor}; font-size:${Math.round(dlLogoSize*0.24)}px; letter-spacing:0.5px;">AVROK</span>`;
+  qrDivDownload.appendChild(dlLogo);
+
+  document.getElementById('qrDownloadAmount').textContent = '₹ ' + total.toFixed(2);
 }
 
 // Called when the shopkeeper taps "Payment Received" after confirming the
@@ -1708,14 +1749,15 @@ function closeQRFullscreen(){
 }
 
 function downloadQR(openFile = true){
-  const qrDiv = document.getElementById('qrcodeDivFull');
+  const qrDiv = document.getElementById('qrDownloadCard');
   const billNo = document.getElementById('sno').value || 'bill';
-  // Capture the whole box (QR + the AVROK logo badge on top of it) so the
-  // downloaded image looks exactly like what's shown on screen, not just
-  // the bare QR without the logo. Returns a Promise so callers (like
-  // confirmPaymentAndSend) can wait for the capture to actually finish
-  // BEFORE hiding the QR element — capturing after it's hidden produces
-  // a blank/failed image.
+  // Captures the styled off-screen "receipt card" (title + orange border +
+  // navy-framed QR + amount) built alongside the QR in generateUPIQR(),
+  // NOT the plain on-screen QR box — this is what makes the downloaded
+  // image look like a proper shareable payment card. Returns a Promise so
+  // callers (like confirmPaymentAndSend) can wait for the capture to
+  // actually finish BEFORE hiding the on-screen fullscreen QR — capturing
+  // after it's hidden produces a blank/failed image.
   return html2canvas(qrDiv, {scale: 2, backgroundColor: '#ffffff'}).then(canvas => {
     const filename = `AVROK_UPI_QR_${billNo}.png`;
     return new Promise(resolve => {
