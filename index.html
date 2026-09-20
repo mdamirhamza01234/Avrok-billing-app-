@@ -7,6 +7,367 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script type="module">
+  // ---------------- FIREBASE (Avrok login + cloud bill history) ----------------
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getDatabase, ref, update, remove, get, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+  import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithCredential, onAuthStateChanged, signOut, deleteUser, signInWithEmailAndPassword, createUserWithEmailAndPassword, EmailAuthProvider, linkWithCredential, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBug9lURVExnAMLjPTFNpTMOBH7am7ykVQ",
+    authDomain: "avrok-75ed7.firebaseapp.com",
+    databaseURL: "https://avrok-75ed7-default-rtdb.firebaseio.com",
+    projectId: "avrok-75ed7",
+    storageBucket: "avrok-75ed7.firebasestorage.app",
+    messagingSenderId: "364101274463",
+    appId: "1:364101274463:web:d27f04878c59a78c2104ea",
+    measurementId: "G-YCV8JWNVEN"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const fbDb = getDatabase(fbApp);
+  const fbStorage = getStorage(fbApp);
+  const fbAuth = getAuth(fbApp);
+  const googleProvider = new GoogleAuthProvider();
+
+  // ---------------- GOOGLE LOGIN ----------------
+  window.signInWithGoogle = async function(){
+    const btn = document.getElementById('googleLoginBtn');
+    const errorEl = document.getElementById('loginError');
+    if(btn) { btn.disabled = true; btn.innerHTML = '<span class="google-spinner"></span> Redirecting to Google...'; }
+    if(errorEl) errorEl.textContent = '';
+    try {
+      const medianGoogle =
+        (window.median && window.median.socialLogin && window.median.socialLogin.google) ||
+        (window.gonative && window.gonative.socialLogin && window.gonative.socialLogin.google);
+
+      if (medianGoogle && typeof medianGoogle.login === 'function') {
+        // Median app ke andar: native Google Sign-In use karo (Chrome nahi khulega).
+        const result = await new Promise((resolve, reject) => {
+          let done = false;
+          const finish = (data) => { if(done) return; done = true; resolve(data); };
+          try {
+            const maybePromise = medianGoogle.login({ callback: finish });
+            if (maybePromise && typeof maybePromise.then === 'function') {
+              maybePromise.then(finish).catch(e => { if(!done){ done = true; reject(e); } });
+            }
+          } catch(e) { reject(e); }
+          setTimeout(() => { if(!done){ done = true; reject(new Error('Google login timed out. Please try again.')); } }, 120000);
+        });
+
+        if (!result || result.success === false || !result.idToken) {
+          throw new Error((result && (result.error || result.message)) || 'Google login was cancelled or failed.');
+        }
+        const credential = GoogleAuthProvider.credential(result.idToken);
+        await signInWithCredential(fbAuth, credential);
+      } else {
+        // Normal browser: popup login.
+        await signInWithPopup(fbAuth, googleProvider);
+      }
+    } catch(err) {
+      console.error('Google sign-in failed:', err);
+      if(errorEl) errorEl.textContent = 'Login failed: ' + (err?.message || 'Unknown error');
+      if(btn) { btn.disabled = false; btn.innerHTML = '<svg class="google-logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.35 12.27c0-.72-.06-1.42-.18-2.09H12v3.96h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.69 2.91-4.18 2.91-7.26z"/><path fill="#34A853" d="M12 21.82c2.63 0 4.84-.87 6.45-2.36l-3.14-2.45c-.87.58-1.98.92-3.31.92-2.55 0-4.71-1.72-5.49-4.03H3.27v2.53A9.74 9.74 0 0 0 12 21.82z"/><path fill="#FBBC05" d="M6.51 13.9A5.86 5.86 0 0 1 6.2 12c0-.66.11-1.3.31-1.9V7.57H3.27A9.82 9.82 0 0 0 2.18 12c0 1.58.38 3.08 1.09 4.43l3.24-2.53z"/><path fill="#EA4335" d="M12 6.07c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.83 3.17 14.62 2.18 12 2.18a9.74 9.74 0 0 0-8.73 5.39l3.24 2.53C7.29 7.79 9.45 6.07 12 6.07z"/></svg> Continue with Google'; }
+    }
+  };
+
+  // ---------------- SET / CHANGE LOGIN PASSWORD (MODAL) ----------------
+  window.openSetPasswordModal = function(mandatory){
+    const user = fbAuth.currentUser || window.currentFirebaseUser;
+    if(!user || !user.email) return;
+    const emailEl = document.getElementById('setPasswordEmail');
+    const p1 = document.getElementById('setPasswordInput1');
+    const p2 = document.getElementById('setPasswordInput2');
+    const errorEl = document.getElementById('setPasswordError');
+    const skipBtn = document.getElementById('setPasswordSkipBtn');
+    const overlay = document.getElementById('setPasswordOverlay');
+    if(emailEl) emailEl.textContent = user.email;
+    if(p1) p1.value = '';
+    if(p2) p2.value = '';
+    if(errorEl) errorEl.textContent = '';
+    if(skipBtn) skipBtn.style.display = mandatory ? 'none' : 'block';
+    if(overlay) overlay.style.display = 'flex';
+  };
+
+  window.closeSetPasswordModal = function(){
+    const overlay = document.getElementById('setPasswordOverlay');
+    if(overlay) overlay.style.display = 'none';
+  };
+
+  window.submitSetPasswordModal = async function(){
+    const user = fbAuth.currentUser || window.currentFirebaseUser;
+    const p1 = document.getElementById('setPasswordInput1');
+    const p2 = document.getElementById('setPasswordInput2');
+    const errorEl = document.getElementById('setPasswordError');
+    const btn = document.getElementById('setPasswordSaveBtn');
+    const password1 = (p1 && p1.value) || '';
+    const password2 = (p2 && p2.value) || '';
+    if(errorEl) errorEl.textContent = '';
+    if(!user || !user.email){
+      if(errorEl) errorEl.textContent = 'Please log in with your Google account first.';
+      return;
+    }
+    if(!password1 || password1.length < 6){
+      if(errorEl) errorEl.textContent = 'Password must be at least 6 characters long.';
+      return;
+    }
+    if(password1 !== password2){
+      if(errorEl) errorEl.textContent = 'Both passwords do not match.';
+      return;
+    }
+    if(btn){ btn.disabled = true; btn.textContent = 'Please wait...'; }
+    try {
+      const hasPasswordProvider = (user.providerData || []).some(p => p.providerId === 'password');
+      if(hasPasswordProvider){
+        await updatePassword(user, password1);
+      } else {
+        const credential = EmailAuthProvider.credential(user.email, password1);
+        await linkWithCredential(user, credential);
+      }
+      window.closeSetPasswordModal();
+    } catch(err){
+      console.error('Set/change password failed:', err);
+      if(errorEl){
+        if(err && err.code === 'auth/requires-recent-login'){
+          errorEl.textContent = 'For security, please log in with Google again first, then change your password.';
+        } else {
+          errorEl.textContent = 'Could not save password: ' + (err?.message || 'Unknown error');
+        }
+      }
+    } finally {
+      if(btn){ btn.disabled = false; btn.textContent = 'Save Password'; }
+    }
+  };
+
+  // ---------------- SHOW/HIDE PASSWORD TOGGLE ----------------
+  window.togglePasswordVisibility = function(btn, inputId){
+    const input = document.getElementById(inputId);
+    if(!input || !btn) return;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    const openIcon = btn.querySelector('.pw-icon-open');
+    const closedIcon = btn.querySelector('.pw-icon-closed');
+    if(openIcon) openIcon.style.display = showing ? 'block' : 'none';
+    if(closedIcon) closedIcon.style.display = showing ? 'none' : 'block';
+  };
+
+  window.signInWithEmailPasswordFlow = async function(){
+    const emailInput = document.getElementById('loginEmailInput');
+    const passInput = document.getElementById('loginPasswordInput');
+    const btn = document.getElementById('emailLoginBtn');
+    const errorEl = document.getElementById('loginError');
+    const email = ((emailInput && emailInput.value) || '').trim();
+    const password = (passInput && passInput.value) || '';
+    if(errorEl) { errorEl.style.color = ''; errorEl.textContent = ''; }
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+      if(errorEl) errorEl.textContent = 'Please enter a valid email address.';
+      return;
+    }
+    if(!password || password.length < 6){
+      if(errorEl) errorEl.textContent = 'Password must be at least 6 characters long.';
+      return;
+    }
+    if(btn){ btn.disabled = true; btn.textContent = 'Please wait...'; }
+    if(emailInput) emailInput.disabled = true;
+    if(passInput) passInput.disabled = true;
+    try {
+      let originalErrorCode = null;
+      try {
+        await signInWithEmailAndPassword(fbAuth, email, password);
+      } catch(err){
+        originalErrorCode = err && err.code;
+        // No account with this email yet -> create one automatically.
+        if(originalErrorCode === 'auth/user-not-found' || originalErrorCode === 'auth/invalid-credential'){
+          try {
+            await createUserWithEmailAndPassword(fbAuth, email, password);
+          } catch(createErr){
+            if(createErr && createErr.code === 'auth/email-already-in-use' && originalErrorCode === 'auth/invalid-credential'){
+              createErr.__ambiguousWrongPassword = true;
+            }
+            throw createErr;
+          }
+        } else {
+          throw err;
+        }
+      }
+    } catch(err){
+      console.error('Email/password sign-in failed:', err);
+      if(errorEl){
+        if(err && err.code === 'auth/email-already-in-use' && err.__ambiguousWrongPassword){
+          errorEl.textContent = 'This email is already registered, but the password you entered is incorrect. If this account was created with Google, use "Continue with Google". If it was created with a password in this app, enter the correct password — or log in with Google and create a new password from "Change Login Password" in the Account menu.';
+        } else if(err && err.code === 'auth/email-already-in-use'){
+          errorEl.textContent = 'This email is already registered with a Google account. Please log in using "Continue with Google".';
+        } else if(err && (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential')){
+          errorEl.textContent = 'This password is incorrect. Your Gmail password will only work here if you have linked this email inside the app using "Change Login Password" — otherwise, only the password you created yourself using "Change Login Password" (Account menu) will work. If you forgot your password or never set one, first log in with "Continue with Google" and then create a new password from "Change Login Password" in the Account menu.';
+        } else {
+          errorEl.textContent = 'Login failed: ' + (err?.message || 'Unknown error');
+        }
+      }
+    } finally {
+      if(btn){ btn.disabled = false; btn.textContent = 'Continue with Email'; }
+      if(emailInput) emailInput.disabled = false;
+      if(passInput) passInput.disabled = false;
+    }
+  };
+
+  onAuthStateChanged(fbAuth, (user) => {
+    window.currentFirebaseUser = user || null;
+    const loginScreen = document.getElementById('loginScreen');
+    if(user) {
+      if(loginScreen) loginScreen.style.display = 'none';
+      document.body.classList.remove('auth-required');
+      const hasPasswordProvider = (user.providerData || []).some(p => p.providerId === 'password');
+      if(!hasPasswordProvider && user.email){
+        window.openSetPasswordModal(true);
+      }
+      setTimeout(() => {
+        if(typeof window.restoreBillHistoryFromFirebase === 'function') {
+          window.restoreBillHistoryFromFirebase().catch(err =>
+            console.warn('Firebase bill history restore failed:', err)
+          );
+        }
+      }, 0);
+    } else {
+      if(loginScreen) loginScreen.style.display = 'flex';
+      document.body.classList.add('auth-required');
+    }
+  });
+
+  // ---------------- ACCOUNT ACTIONS ----------------
+  window.logoutAccount = async function(){
+    try {
+      await signOut(fbAuth);
+      if(typeof window.closeDrawer === 'function') window.closeDrawer();
+    } catch(err) {
+      console.error('Logout failed:', err);
+      alert('Logout failed. Please try again.');
+    }
+  };
+
+  window.deleteAccount = async function(){
+    const user = fbAuth.currentUser || window.currentFirebaseUser;
+    if(!user) {
+      alert('Please log in with your Google account first.');
+      return;
+    }
+
+    const ok = confirm(
+      'Delete Account?\n\n' +
+      'This will permanently delete the Firebase bill history and customer data of this Google account.\n' +
+      'Local bill records on this phone will also be deleted.\n\n' +
+      'This action cannot be undone.\n\nAre you sure you want to delete your account?'
+    );
+    if(!ok) return;
+
+    try {
+      await remove(ref(fbDb, 'users/' + user.uid));
+      try {
+        localStorage.removeItem('avrok_bill_history_' + user.uid);
+        localStorage.removeItem('avrok_bill_history');
+      } catch(e) {}
+      await deleteUser(user);
+      window.currentFirebaseUser = null;
+      if(typeof window.closeDrawer === 'function') window.closeDrawer();
+      alert('Your account and the customer/bill data saved in Firebase have been deleted.');
+    } catch(err) {
+      console.error('Account deletion failed:', err);
+      if(err && (err.code === 'auth/requires-recent-login' || err.code === 'auth/user-token-expired')) {
+        alert('A recent Google login is required for security.\n\nPlease log out, log in with Google again, and then delete your account.');
+      } else {
+        alert('Could not delete account: ' + (err?.message || 'Unknown error'));
+      }
+    }
+  };
+
+  // ---------------- USER BILL HISTORY CLOUD SYNC ----------------
+  function firebaseBillPath(uid){
+    return ref(fbDb, 'users/' + uid + '/bills');
+  }
+
+  function firebaseBillKey(record){
+    return encodeURIComponent(String(record.billNo || '') + '|' + String(record.dateTime || ''))
+      .replace(/\./g, '%2E');
+  }
+
+  window.saveBillToFirebase = async function(record){
+    const user = window.currentFirebaseUser || fbAuth.currentUser;
+    if(!user || !record) return false;
+    await set(ref(fbDb, 'users/' + user.uid + '/bills/' + firebaseBillKey(record)), record);
+    return true;
+  };
+
+  window.deleteBillFromFirebase = async function(record){
+    const user = window.currentFirebaseUser || fbAuth.currentUser;
+    if(!user || !record) return false;
+    await remove(ref(fbDb, 'users/' + user.uid + '/bills/' + firebaseBillKey(record)));
+    return true;
+  };
+
+  window.clearBillHistoryFromFirebase = async function(){
+    const user = window.currentFirebaseUser || fbAuth.currentUser;
+    if(!user) return false;
+    await remove(firebaseBillPath(user.uid));
+    return true;
+  };
+
+  window.restoreBillHistoryFromFirebase = async function(){
+    const user = window.currentFirebaseUser || fbAuth.currentUser;
+    if(!user) return false;
+
+    const snap = await get(firebaseBillPath(user.uid));
+    const cloud = snap.exists() ? Object.values(snap.val() || {}) : [];
+
+    const userKey = 'avrok_bill_history_' + user.uid;
+    let local = [];
+    try {
+      const scoped = localStorage.getItem(userKey);
+      if(scoped) local = JSON.parse(scoped) || [];
+      else {
+        const legacy = localStorage.getItem('avrok_bill_history');
+        if(legacy) {
+          local = JSON.parse(legacy) || [];
+          if(local.length) localStorage.setItem(userKey, JSON.stringify(local));
+          localStorage.removeItem('avrok_bill_history');
+        }
+      }
+    } catch(e) {
+      local = [];
+    }
+
+    const byKey = new Map();
+    cloud.forEach(rec => { if(rec) byKey.set(firebaseBillKey(rec), rec); });
+    local.forEach(rec => { if(rec) byKey.set(firebaseBillKey(rec), rec); });
+    const merged = Array.from(byKey.values()).sort((a,b) =>
+      String(b.dateTime || '').localeCompare(String(a.dateTime || ''))
+    );
+
+    try { localStorage.setItem(userKey, JSON.stringify(merged)); } catch(e) {}
+
+    if(cloud.length === 0 && merged.length){
+      await Promise.all(merged.map(rec =>
+        set(ref(fbDb, 'users/' + user.uid + '/bills/' + firebaseBillKey(rec)), rec)
+      ));
+    } else {
+      const cloudKeys = new Set(cloud.map(firebaseBillKey));
+      await Promise.all(merged.filter(rec => !cloudKeys.has(firebaseBillKey(rec))).map(rec =>
+        set(ref(fbDb, 'users/' + user.uid + '/bills/' + firebaseBillKey(rec)), rec)
+      ));
+    }
+
+    window.dispatchEvent(new CustomEvent('avrokFirebaseBillHistoryReady'));
+    return merged;
+  };
+
+  // Uploads a generated PDF (Blob) to Firebase Storage and returns a real,
+  // public HTTPS download URL.
+  window.uploadPdfToFirebase = async function(pdfBlob, filename){
+    const path = 'bills/' + Date.now() + '_' + filename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const sRef = storageRef(fbStorage, path);
+    await uploadBytes(sRef, pdfBlob, { contentType: 'application/pdf' });
+    return await getDownloadURL(sRef);
+  };
+</script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -375,6 +736,24 @@
     background: #14213d;
     border-radius: 2px;
   }
+  .topbar-new-btn {
+    background: none;
+    border: none;
+    color: #14213d;
+    cursor: pointer;
+    padding: 0;
+    margin-top: 0;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .topbar-new-btn:active { background: #e9edf5; }
+  .topbar-new-btn svg { width: 24px; height: 24px; display: block; }
   .topbar h1 {
     margin: 0;
     flex: 1;
@@ -448,9 +827,204 @@
     font-size: 14px;
     cursor: pointer;
   }
+
+  /* ---------------- GOOGLE LOGIN SCREEN ---------------- */
+  body.auth-required { overflow: hidden; }
+  #loginScreen {
+    position: fixed; inset: 0; z-index: 20000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    background: #faf9f7;
+    overflow-y: auto;
+  }
+  .login-card {
+    width: 100%; max-width: 430px;
+    background: #fff; border: 1px solid #e8e6e3;
+    border-radius: 22px; padding: 38px 30px 30px;
+    box-shadow: 0 10px 35px rgba(0,0,0,.07);
+    text-align: center;
+  }
+  .login-logo {
+    width: 58px; height: 58px; margin: 0 auto 18px;
+    border-radius: 16px; background: #14213d;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 29px;
+  }
+  .login-title {
+    margin: 0; color: #222; font-size: 28px; font-weight: 750;
+    letter-spacing: -.4px;
+  }
+  .login-subtitle {
+    margin: 10px 0 25px; color: #666; font-size: 14px; line-height: 1.5;
+  }
+  #googleLoginBtn {
+    width: 100%; min-height: 54px; border: 0;
+    border-radius: 999px; background: #171717; color: #fff;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 13px;
+    box-shadow: none;
+    transition: transform .12s ease, background .12s ease;
+  }
+  #googleLoginBtn:active { background: #000; transform: scale(.99); }
+  #googleLoginBtn:disabled { opacity: .7; cursor: wait; }
+  .google-logo { width: 22px; height: 22px; display: block; flex: 0 0 22px; }
+  .google-spinner {
+    width: 18px; height: 18px; border: 2px solid #ddd;
+    border-top-color: #4285f4; border-radius: 50%;
+    animation: googleSpin .8s linear infinite;
+  }
+  @keyframes googleSpin { to { transform: rotate(360deg); } }
+  .login-or {
+    display: flex; align-items: center; gap: 14px; margin: 24px 0 18px;
+    color: #888; font-size: 15px; font-weight: 500;
+  }
+  .login-or::before, .login-or::after {
+    content: ''; height: 1px; background: #d9d7d4; flex: 1;
+  }
+  .login-email {
+    width: 100%; min-height: 54px; padding: 0 18px;
+    border: 1px solid #ddd9d5; border-radius: 14px;
+    background: #fff; color: #333; text-align: center;
+    font-size: 16px; outline: none;
+  }
+  .login-email::placeholder { color: #888; }
+  .login-email:focus { border-color: #b9b5b0; box-shadow: 0 0 0 3px rgba(0,0,0,.04); }
+  #loginPasswordInput { margin-top: 10px; }
+  .pw-field-wrap { position: relative; }
+  .pw-field-wrap .login-email { padding-right: 46px; }
+  .pw-toggle-btn {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px; border: 0; background: transparent;
+    display: flex; align-items: center; justify-content: center;
+    color: #888; cursor: pointer; padding: 0;
+  }
+  .pw-toggle-btn:active { color: #444; }
+  .pw-toggle-btn svg { width: 20px; height: 20px; display: block; }
+  #emailLoginBtn {
+    width: 100%; min-height: 50px; margin-top: 12px;
+    border: 1.5px solid #171717; border-radius: 999px;
+    background: #fff; color: #171717;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  #emailLoginBtn:active { background: #f2f2f2; }
+  #emailLoginBtn:disabled { opacity: .6; cursor: wait; }
+  .login-terms {
+    margin: 18px 0 0; color: #888; font-size: 11px; line-height: 1.55;
+  }
+  #loginError {
+    min-height: 18px; margin-top: 14px; color: #c62828;
+    font-size: 12px; line-height: 1.4; word-break: break-word;
+  }
+
+  #setPasswordOverlay {
+    display: none; position: fixed; inset: 0; z-index: 10060;
+    background: rgba(0,0,0,.55);
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  #setPasswordOverlay .login-card { max-width: 380px; text-align: left; }
+  #setPasswordOverlay h2 { margin: 0 0 8px; font-size: 20px; font-weight: 800; color: #222; }
+  #setPasswordOverlay p { margin: 0 0 20px; color: #666; font-size: 13px; line-height: 1.55; }
+  #setPasswordInput2 { margin-top: 10px; }
+  #setPasswordSaveBtn {
+    width: 100%; min-height: 50px; margin-top: 14px; border: 0;
+    border-radius: 999px; background: #171717; color: #fff;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  #setPasswordSaveBtn:active { background: #000; }
+  #setPasswordSaveBtn:disabled { opacity: .6; cursor: wait; }
+  #setPasswordSkipBtn {
+    width: 100%; min-height: 42px; margin-top: 8px; border: 0;
+    background: transparent; color: #888; font-size: 13px; cursor: pointer;
+  }
+  #setPasswordError {
+    min-height: 18px; margin-top: 10px; color: #c62828;
+    font-size: 12px; line-height: 1.4; word-break: break-word;
+  }
+
+  /* ---------------- DRAWER RECENTS ---------------- */
+  .drawer-recents-title { padding:18px 18px 8px; font-size:17px; font-weight:800; color:#222; border-top:1px solid #eee; margin-top:4px; }
+  .drawer-recents-list { padding:0 10px 18px; }
+  .drawer-recent-row { display:flex; align-items:center; gap:10px; padding:11px 8px; border-radius:9px; cursor:pointer; }
+  .drawer-recent-row:active { background:#f1f1f1; }
+  .drawer-recent-avatar { width:34px; height:34px; border-radius:50%; background:#eef1f5; color:#333; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex:0 0 34px; }
+  .drawer-recent-main { min-width:0; flex:1; }
+  .drawer-recent-name { font-size:14px; font-weight:700; color:#222; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drawer-recent-meta { font-size:11px; color:#777; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drawer-recent-amount { font-size:14px; font-weight:800; color:#1a7a3e; white-space:nowrap; }
+  .drawer-recent-empty { padding:8px 8px 16px; font-size:12px; color:#888; }
+  .drawer-recent-seeall { padding:12px 8px 16px; font-size:14px; color:#666; cursor:pointer; }
+  .drawer-recent-seeall:active { background:#f5f5f5; border-radius:8px; }
+
+  /* ---------------- ACCOUNT MENU (inside hamburger drawer) ---------------- */
+  .drawer-account-spacer { flex:1; min-height:8px; }
+  .drawer-account-btn { margin:8px 14px 14px; padding:10px; border:0; border-radius:12px; background:#eef1f5; display:flex; align-items:center; gap:11px; text-align:left; cursor:pointer; width:calc(100% - 28px); }
+  .drawer-account-avatar { width:38px; height:38px; border-radius:50%; background:#1a3e8c; color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; flex:0 0 38px; }
+  .drawer-account-text { min-width:0; flex:1; }
+  .drawer-account-name { font-size:14px; font-weight:800; color:#222; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drawer-account-email { font-size:11px; color:#777; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drawer-account-chevron { font-size:22px; color:#777; }
+  .account-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10020; align-items:flex-end; justify-content:center; }
+  .account-sheet { width:100%; max-width:430px; background:#fff; border-radius:18px 18px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom,0)); box-shadow:0 -8px 30px rgba(0,0,0,.2); }
+  .account-sheet-head { display:flex; align-items:center; gap:12px; padding:4px 2px 14px; border-bottom:1px solid #eee; }
+  .account-sheet-avatar { width:46px; height:46px; border-radius:50%; background:#1a3e8c; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; }
+  .account-sheet-name { font-weight:800; font-size:15px; color:#222; }
+  .account-sheet-email { font-size:12px; color:#777; margin-top:3px; }
+  .account-option { width:100%; border:0; background:#fff; padding:15px 8px; display:flex; align-items:center; gap:12px; font-size:15px; font-weight:600; color:#2b2b2b; text-align:left; border-bottom:1px solid #f1f1f1; cursor:pointer; }
+  .account-option:active { background:#f6f6f6; }
+  .account-option.delete { color:#d62828; }
+  .pro-icon { width:20px; height:20px; display:inline-block; vertical-align:middle; flex:0 0 auto; }
+  .history-trash-icon { width:16px; height:16px; display:inline-block; vertical-align:middle; }
 </style>
 </head>
 <body>
+<!-- Google Login: billing app is shown only after Firebase Authentication succeeds. -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">⚡</div>
+    <h1 class="login-title">Welcome to Avrok Billing</h1>
+    <p class="login-subtitle">To use the Bill Generator, please continue with your Google account.</p>
+    <button id="googleLoginBtn" type="button" onclick="signInWithGoogle()">
+      <svg class="google-logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.35 12.27c0-.72-.06-1.42-.18-2.09H12v3.96h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.69 2.91-4.18 2.91-7.26z"/><path fill="#34A853" d="M12 21.82c2.63 0 4.84-.87 6.45-2.36l-3.14-2.45c-.87.58-1.98.92-3.31.92-2.55 0-4.71-1.72-5.49-4.03H3.27v2.53A9.74 9.74 0 0 0 12 21.82z"/><path fill="#FBBC05" d="M6.51 13.9A5.86 5.86 0 0 1 6.2 12c0-.66.11-1.3.31-1.9V7.57H3.27A9.82 9.82 0 0 0 2.18 12c0 1.58.38 3.08 1.09 4.43l3.24-2.53z"/><path fill="#EA4335" d="M12 6.07c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.83 3.17 14.62 2.18 12 2.18a9.74 9.74 0 0 0-8.73 5.39l3.24 2.53C7.29 7.79 9.45 6.07 12 6.07z"/></svg>
+      Continue with Google
+    </button>
+    <div class="login-or">OR</div>
+    <input id="loginEmailInput" class="login-email" type="email" inputmode="email" autocomplete="email" placeholder="Enter your email" aria-label="Enter your email" onkeydown="if(event.key==='Enter'){ event.preventDefault(); document.getElementById('loginPasswordInput').focus(); }">
+    <div class="pw-field-wrap">
+      <input id="loginPasswordInput" class="login-email" type="password" autocomplete="current-password" placeholder="Enter Gmail password / Login password" aria-label="Enter Gmail password or login password" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.signInWithEmailPasswordFlow(); }">
+      <button type="button" class="pw-toggle-btn" aria-label="Show or hide password" onclick="window.togglePasswordVisibility(this,'loginPasswordInput')">
+        <svg class="pw-icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="pw-icon-closed" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-6.06"/><path d="M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-3.22 4.4"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+      </button>
+    </div>
+    <button id="emailLoginBtn" type="button" onclick="window.signInWithEmailPasswordFlow()">Continue with Email</button>
+    <div class="login-terms">By continuing, you agree to the app's login terms and privacy rules.</div>
+    <div id="loginError" role="alert"></div>
+  </div>
+</div>
+<!-- Mandatory/optional login-password creation modal (linked to the Firebase account). -->
+<div id="setPasswordOverlay">
+  <div class="login-card">
+    <h2>Create Login Password</h2>
+    <p>Create a login password for your email (<strong id="setPasswordEmail"></strong>) — this lets you also log in directly with your email and password from any device.</p>
+    <div class="pw-field-wrap">
+      <input id="setPasswordInput1" class="login-email" type="password" placeholder="New login password" autocomplete="new-password" aria-label="New login password">
+      <button type="button" class="pw-toggle-btn" aria-label="Show or hide password" onclick="window.togglePasswordVisibility(this,'setPasswordInput1')">
+        <svg class="pw-icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="pw-icon-closed" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-6.06"/><path d="M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-3.22 4.4"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+      </button>
+    </div>
+    <div class="pw-field-wrap">
+      <input id="setPasswordInput2" class="login-email" type="password" placeholder="Re-enter password" autocomplete="new-password" aria-label="Confirm password" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.submitSetPasswordModal(); }">
+      <button type="button" class="pw-toggle-btn" aria-label="Show or hide password" onclick="window.togglePasswordVisibility(this,'setPasswordInput2')">
+        <svg class="pw-icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="pw-icon-closed" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-6.06"/><path d="M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-3.22 4.4"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+      </button>
+    </div>
+    <button id="setPasswordSaveBtn" type="button" onclick="window.submitSetPasswordModal()">Save Password</button>
+    <button id="setPasswordSkipBtn" type="button" onclick="window.closeSetPasswordModal()">Cancel</button>
+    <div id="setPasswordError" role="alert"></div>
+  </div>
+</div>
 
 <!-- Hamburger side menu -->
 <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
@@ -463,17 +1037,40 @@
   <button class="drawer-item" onclick="closeDrawer(); newBillCreate();"><span class="icon">🧾</span> New Bill Create</button>
   <button class="drawer-item" onclick="closeDrawer(); openSearchBill();"><span class="icon">🔍</span> Search Bill</button>
   <button class="drawer-item" onclick="closeDrawer(); generateCustomerRecordPDF();"><span class="icon">📄</span> Customer Record PDF</button>
-  <button class="drawer-item" onclick="closeDrawer(); openBillHistory();"><span class="icon">📋</span> Sabhi Bills Ka Record Dekhein</button>
+  <button class="drawer-item" onclick="closeDrawer(); openBillHistory();"><span class="icon">📋</span> View All Bills Record</button>
+  <div class="drawer-recents-title">Recents</div>
+  <div id="drawerRecentsList" class="drawer-recents-list"></div>
+  <div class="drawer-account-spacer"></div>
+  <button class="drawer-account-btn" onclick="openAccountSheet()">
+    <div class="drawer-account-avatar" id="drawerAccountAvatar">NA</div>
+    <div class="drawer-account-text"><div class="drawer-account-name" id="drawerAccountName">My Account</div><div class="drawer-account-email" id="drawerAccountEmail"></div></div>
+    <div class="drawer-account-chevron">›</div>
+  </button>
+</div>
+
+<div class="account-overlay" id="accountOverlay" onclick="closeAccountSheet()">
+  <div class="account-sheet" onclick="event.stopPropagation()">
+    <div class="account-sheet-head">
+      <div class="account-sheet-avatar" id="accountSheetAvatar">NA</div>
+      <div style="min-width:0;flex:1;"><div class="account-sheet-name" id="accountSheetName">My Account</div><div class="account-sheet-email" id="accountSheetEmail"></div></div>
+      <button class="drawer-close-btn" style="position:static;" onclick="closeAccountSheet()">✕</button>
+    </div>
+    <button class="account-option" onclick="switchAvrokAccount()">🔁 Account Change / Switch Account</button>
+    <button class="account-option" onclick="window.open('https://console.firebase.google.com/project/avrok-75ed7/database/avrok-75ed7-default-rtdb/usage','_blank'); closeAccountSheet();">🗄️ See Your Data on Google Database</button>
+    <button class="account-option" onclick="window.openSetPasswordModal(false); closeAccountSheet();">🔑 Change Login Password</button>
+    <button class="account-option" onclick="logoutAccount(); closeAccountSheet();">🚪 Log Out</button>
+    <button class="account-option delete" onclick="deleteAccount(); closeAccountSheet();"><svg class="pro-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg> Delete Account</button>
+  </div>
 </div>
 
 <!-- Bill search overlay -->
 <div id="searchOverlay" style="display:none; position:fixed; inset:0; background:rgba(12,31,74,0.92); z-index:9998; padding:20px; padding-top:max(20px, env(safe-area-inset-top, 20px)); overflow-y:auto;">
   <div style="max-width:600px; margin:0 auto; background:#fff; border-radius:10px; padding:18px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <h2 style="margin:0; color:#1a3e8c; font-size:18px;">🔍 Bill Search Karein</h2>
+      <h2 style="margin:0; color:#1a3e8c; font-size:18px;">🔍 Search Bills</h2>
       <button onclick="closeSearchBill()" style="background:#e63946; color:#fff; border:none; border-radius:50%; width:34px; height:34px; font-size:16px; cursor:pointer;">✕</button>
     </div>
-    <input type="text" id="billSearchInput" placeholder="Customer naam, Mobile number, Address ya Bill number likhein..." oninput="renderSearchResults()" style="width:100%; padding:10px 12px; border:1px solid #cbd3e1; border-radius:8px; font-size:14px; margin-bottom:14px;">
+    <input type="text" id="billSearchInput" placeholder="Enter customer name, mobile number, address or bill number..." oninput="renderSearchResults()" style="width:100%; padding:10px 12px; border:1px solid #cbd3e1; border-radius:8px; font-size:14px; margin-bottom:14px;">
     <div id="searchResultsList"></div>
   </div>
 </div>
@@ -482,7 +1079,7 @@
   <div class="topbar">
     <button class="hamburger-btn" onclick="openDrawer()"><span></span><span></span><span></span></button>
     <h1>⚡ AVROK AC Electrician - Bill Generator</h1>
-    <div style="width:32px; flex-shrink:0;"></div>
+    <button class="topbar-new-btn" onclick="newBillCreate()" aria-label="New bill" title="New bill"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg></button>
   </div>
 
   <div class="panel">
@@ -498,7 +1095,7 @@
       </div>
       <div class="field">
         <label>M/s (Customer Name)</label>
-        <input type="text" id="custName" placeholder="Customer ka naam">
+        <input type="text" id="custName" placeholder="Customer name">
       </div>
       <div class="field">
         <label>Customer Mobile Number (WhatsApp)</label>
@@ -506,7 +1103,7 @@
       </div>
       <div class="field">
         <label>Address</label>
-        <input type="text" id="custAddr" placeholder="Customer ka address">
+        <input type="text" id="custAddr" placeholder="Customer address">
       </div>
       <div class="field">
         <label>Product</label>
@@ -528,7 +1125,7 @@
   </div>
 
   <div class="panel">
-    <h2>Items / Particulars (Saman ka naam aur price)</h2>
+    <h2>Items / Particulars (Item name and price)</h2>
     <table id="itemsTable">
       <thead>
         <tr>
@@ -542,15 +1139,15 @@
       </thead>
       <tbody id="itemsBody"></tbody>
     </table>
-    <button class="add-row-btn" onclick="addRow()">+ Row Add Karein</button>
+    <button class="add-row-btn" onclick="addRow()">+ Add Row</button>
     <div class="total-preview">Total: ₹ <span id="totalPreview">0.00</span></div>
   </div>
 
-  <button class="upi-btn" onclick="generateUPIQR()">💳 UPI Payment QR Generate Karein (Full Screen)</button>
+  <button class="upi-btn" onclick="generateUPIQR()">💳 Generate UPI Payment QR (Full Screen)</button>
 
   <button class="sign-btn" id="signBtnLabel" onclick="openSignaturePad()">✍️ Receiver Signature</button>
 
-  <button class="whatsapp-btn" onclick="sendWhatsApp()">📱 Bill PDF WhatsApp Par Bhejein</button>
+  <button class="whatsapp-btn" onclick="sendWhatsApp()">📱 Send Bill PDF on WhatsApp</button>
 
   <button class="generate-btn" onclick="generateBill()">📄 GENERATE BILL (PDF Download)</button>
 
@@ -566,12 +1163,12 @@
     </div>
 
     <div style="background:#fff8e6; border:1px solid #f2d98a; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#7a5a00;">
-      ⚠️ Agar app/browser ka data kabhi clear ho jaye to yahan ki list khali dikh sakti hai. Isliye time-time par <b>"Backup Save"</b> zaroor dabate rahein — wo ek file phone ke Downloads mein save kar deta hai jo hamesha surakshit rehti hai, aur usi se <b>"Backup Load"</b> se history wapas la sakte hain.
+      ⚠️ If the app/browser data is ever cleared, the list here may appear empty. So please keep pressing <b>"Save Backup"</b> from time to time — it saves a file in your phone's Downloads that always stays safe, and you can bring your history back from it using <b>"Load Backup"</b>.
     </div>
 
     <div style="display:flex; gap:8px; margin-bottom:14px;">
-      <button class="add-row-btn" style="flex:1; margin-top:0;" onclick="backupHistoryToFile(false)">💾 Backup Save Karein</button>
-      <button class="add-row-btn" style="flex:1; margin-top:0; background:#1a7a3e;" onclick="triggerRestoreFile()">📂 Backup Load Karein</button>
+      <button class="add-row-btn" style="flex:1; margin-top:0;" onclick="backupHistoryToFile(false)">💾 Save Backup</button>
+      <button class="add-row-btn" style="flex:1; margin-top:0; background:#1a7a3e;" onclick="triggerRestoreFile()">📂 Load Backup</button>
     </div>
     <!-- Accepts both JSON (the actual backup format) and PDF (so bill PDFs
     show up in the picker too, in case the user wants to browse those) —
@@ -582,16 +1179,16 @@
     <div id="historySelectToolbar" style="display:none; align-items:center; justify-content:space-between; gap:8px; background:#eef1f5; border-radius:8px; padding:8px 10px; margin-bottom:10px;">
       <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#1a3e8c;">
         <input type="checkbox" id="historySelectAllCheckbox" onclick="toggleSelectAllHistory()" style="width:18px; height:18px;">
-        Sab Select Karein
+        Select All
       </label>
       <div style="display:flex; gap:6px;">
-        <button id="historyDeleteSelectedBtn" onclick="deleteSelectedHistory()" style="background:#e63946; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;">🗑 Delete Selected (0)</button>
+        <button id="historyDeleteSelectedBtn" onclick="deleteSelectedHistory()" style="background:#e63946; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;"><svg class="pro-icon history-trash-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg> Delete Selected (0)</button>
         <button onclick="cancelHistorySelection()" style="background:#777; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;">Cancel</button>
       </div>
     </div>
 
     <div id="historyList"></div>
-    <button class="rm-btn" style="width:100%; padding:10px; margin-top:10px;" onclick="clearBillHistory()">🗑 Saara History Delete Karein</button>
+    <button class="rm-btn" style="width:100%; padding:10px; margin-top:10px;" onclick="clearBillHistory()"><svg class="pro-icon history-trash-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg> Delete All History</button>
   </div>
 </div>
 
@@ -607,7 +1204,7 @@
     <button class="sig-clear-btn" onclick="clearSignature()">🔄 Clear</button>
     <button class="sig-save-btn" onclick="saveSignature()">✅ Save</button>
   </div>
-  <div class="sig-hint">✏️ Yahan ungli/pen se sign karein</div>
+  <div class="sig-hint">✏️ Sign here with your finger/pen</div>
 </div>
 
 <!-- Full-screen QR overlay for easy scanning -->
@@ -627,8 +1224,8 @@
     <p style="color:#c9d2e6; font-size:13px; margin:2px 0 0 0;">UPI ID: 9155944307@ybl</p>
   </div>
 
-  <button class="add-row-btn" onclick="downloadQR()" style="margin-top:14px; max-width:340px;">⬇ QR Image Download Karein</button>
-  <button class="whatsapp-btn" onclick="confirmPaymentAndSend()" style="max-width:340px; margin-top:14px;">✅ Payment Mil Gaya - Bill WhatsApp Par Bhejein</button>
+  <button class="add-row-btn" onclick="downloadQR()" style="margin-top:14px; max-width:340px;">⬇ Download QR Image</button>
+  <button class="whatsapp-btn" onclick="confirmPaymentAndSend()" style="max-width:340px; margin-top:14px;">✅ Payment Received - Send Bill on WhatsApp</button>
 </div>
 
 <!-- Hidden styled "receipt card" used ONLY for the downloaded QR image
@@ -713,7 +1310,7 @@ function addRow(){
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td style="text-align:center;">${rowCount}</td>
-    <td><input type="text" class="itemName" placeholder="Saman ka naam" enterkeyhint="next"></td>
+    <td><input type="text" class="itemName" placeholder="Item name" enterkeyhint="next"></td>
     <td><input type="number" class="itemQty" value="1" min="0" oninput="calcTotal()" enterkeyhint="next"></td>
     <td><input type="number" class="itemRate" value="0" min="0" step="0.01" oninput="calcTotal()" enterkeyhint="next"></td>
     <td class="amt-cell"><span class="itemAmt">0.00</span></td>
@@ -783,11 +1380,26 @@ function calcTotal(){
     const qty = parseFloat(tr.querySelector('.itemQty').value) || 0;
     const rate = parseFloat(tr.querySelector('.itemRate').value) || 0;
     const amt = qty * rate;
-    tr.querySelector('.itemAmt').textContent = amt.toFixed(2);
+    tr.querySelector('.itemAmt').innerHTML = fmtAmountCell(amt.toFixed(2));
     total += amt;
   });
   document.getElementById('totalPreview').textContent = total.toFixed(2);
   return total;
+}
+
+// ---------------- LONG NUMBER AUTO-FIT (no more cut-off amounts) ----------------
+// When an item's Qty x Rate becomes a very large number (e.g. ₹9,79,70,404.00),
+// it shrinks to a smaller font so it fits inside its cell instead of getting
+// cut off outside the table. Smaller amounts look exactly the same as before.
+function fmtAmountCell(text){
+  const len = String(text).length;
+  let fs = 13;
+  if(len > 10) fs = 11.5;
+  if(len > 13) fs = 10;
+  if(len > 16) fs = 8.5;
+  if(len > 19) fs = 7.5;
+  if(len > 22) fs = 6.5;
+  return `<span style="font-size:${fs}px; white-space:nowrap;">${text}</span>`;
 }
 
 function generateBill(openFile = true){
@@ -818,7 +1430,7 @@ function generateBill(openFile = true){
     total += amt;
     itemList.push({ name, qty, rate, amt });
     const row = document.createElement('tr');
-    row.innerHTML = `<td style="text-align:center;">${i+1}</td><td>${name}</td><td class="num">${qty}</td><td class="num">₹${rate.toFixed(2)}</td><td class="num">₹${amt.toFixed(2)}</td>`;
+    row.innerHTML = `<td style="text-align:center;">${i+1}</td><td>${name}</td><td class="num">${qty}</td><td class="num">${fmtAmountCell('₹'+rate.toFixed(2))}</td><td class="num">${fmtAmountCell('₹'+amt.toFixed(2))}</td>`;
     pBody.appendChild(row);
   });
   // pad empty rows for visual look (min 6 rows)
@@ -829,7 +1441,7 @@ function generateBill(openFile = true){
     row.innerHTML = `<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>`;
     pBody.appendChild(row);
   }
-  document.getElementById('p_total').textContent = '₹' + total.toFixed(2);
+  document.getElementById('p_total').innerHTML = fmtAmountCell('₹' + total.toFixed(2));
 
   // Apply the captured Receiver Signature (if any) into the invoice template
   const recvImg = document.getElementById('p_receiverSign');
@@ -884,16 +1496,85 @@ function generateBill(openFile = true){
 
 // ---------------- HAMBURGER SIDE MENU ----------------
 function openDrawer(){
+  refreshDrawerAccount();
+  renderDrawerRecents();
   document.getElementById('drawerOverlay').style.display = 'block';
   document.getElementById('drawerPanel').classList.add('open');
+}
+
+function renderDrawerRecents(){
+  const el = document.getElementById('drawerRecentsList');
+  if(!el) return;
+  const history = getBillHistory();
+  if(!Array.isArray(history) || history.length === 0){
+    el.innerHTML = '<div class="drawer-recent-empty">No recent bills yet.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  history.slice(0, 8).forEach((rec, idx) => {
+    const row = document.createElement('div');
+    row.className = 'drawer-recent-row';
+    const fullName = String(rec.custName || 'Customer').trim() || 'Customer';
+    const shortName = fullName.length > 24 ? fullName.slice(0,24).trim() + '…' : fullName;
+    const words = fullName.split(/\s+/).filter(Boolean);
+    const initials = ((words[0] || 'C')[0] + (words.length > 1 ? words[1][0] : (words[0] || 'C')[1] || '')).toUpperCase();
+    let time = String(rec.dateTime || '').trim();
+    if(time.includes(',')) time = time.split(',').pop().trim();
+    if(time.includes('·')) time = time.split('·').pop().trim();
+    const amount = '₹' + Number(rec.total || 0).toFixed(2);
+    row.innerHTML = `<div class="drawer-recent-avatar">${initials}</div><div class="drawer-recent-main"><div class="drawer-recent-name">${shortName}</div><div class="drawer-recent-meta">${time || ('Bill ' + (rec.billNo || ''))}</div></div><div class="drawer-recent-amount">${amount}</div>`;
+    row.onclick = () => {
+      closeDrawer();
+      setTimeout(() => { if(typeof restoreBillToForm === 'function') restoreBillToForm(idx); }, 280);
+    };
+    el.appendChild(row);
+  });
+  const seeAll = document.createElement('div');
+  seeAll.className = 'drawer-recent-seeall';
+  seeAll.textContent = 'See all…';
+  seeAll.onclick = () => { closeDrawer(); openBillHistory(); };
+  el.appendChild(seeAll);
 }
 function closeDrawer(){
   document.getElementById('drawerOverlay').style.display = 'none';
   document.getElementById('drawerPanel').classList.remove('open');
 }
 
+// ---------------- ACCOUNT MENU ----------------
+function getCurrentAccountInfo(){
+  const u = window.currentFirebaseUser || null;
+  const name = (u && (u.displayName || u.email)) || 'My Account';
+  const email = (u && u.email) || '';
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1 ? (parts[0][0] + parts[1][0]) : String(parts[0] || 'NA').slice(0,2);
+  return {name, email, initials: initials.toUpperCase()};
+}
+function refreshDrawerAccount(){
+  const a = getCurrentAccountInfo();
+  ['drawerAccountAvatar','accountSheetAvatar'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=a.initials;});
+  ['drawerAccountName','accountSheetName'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=a.name;});
+  ['drawerAccountEmail','accountSheetEmail'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=a.email;});
+}
+function openAccountSheet(){ refreshDrawerAccount(); document.getElementById('accountOverlay').style.display='flex'; }
+function closeAccountSheet(){ document.getElementById('accountOverlay').style.display='none'; }
+function switchAvrokAccount(){
+  closeAccountSheet();
+  try {
+    if (typeof window.logoutAccount === 'function') {
+      const result = window.logoutAccount();
+      if (result && typeof result.then === 'function') {
+        result.then(() => { if (typeof window.signInWithGoogle === 'function') window.signInWithGoogle(); });
+      } else if (typeof window.signInWithGoogle === 'function') {
+        window.signInWithGoogle();
+      }
+    } else if (typeof window.signInWithGoogle === 'function') {
+      window.signInWithGoogle();
+    }
+  } catch(e) {}
+}
+
 function newBillCreate(){
-  if(!confirm('Naya bill banayein? Abhi form mein bhare gaye saare fields clear ho jayenge (history safe rahegi).')) return;
+  if(!confirm('Create a new bill? All fields currently filled in the form will be cleared (history will remain safe).')) return;
   document.getElementById('custName').value = '';
   document.getElementById('custMobile').value = '';
   document.getElementById('custAddr').value = '';
@@ -1002,7 +1683,7 @@ function closeSignaturePad(){
 
 function saveSignature(){
   if(!window.sigHasContent){
-    alert('Kripya pehle sign karein, uske baad Save dabayein.');
+    alert('Please sign first, then press Save.');
     return;
   }
   const canvas = document.getElementById('sigCanvas');
@@ -1023,11 +1704,11 @@ function updateSignatureButtonLabel(){
 function generateCustomerRecordPDF(){
   const history = getBillHistory();
   if(history === null){
-    alert('Is environment mein storage available nahi hai (Claude preview sandbox). Ye feature file ko real browser ya APK mein khol kar hi kaam karega.');
+    alert('Storage is not available in this environment (Claude preview sandbox). This feature will only work when the file is opened in a real browser or APK.');
     return;
   }
   if(history.length === 0){
-    alert('Abhi tak koi bill generate nahi hua hai, isliye record PDF banane ke liye kuch nahi hai.');
+    alert('No bill has been generated yet, so there is nothing to create a record PDF from.');
     return;
   }
 
@@ -1116,11 +1797,11 @@ function renderSearchResults(){
   listEl.innerHTML = '';
 
   if(history === null){
-    listEl.innerHTML = '<p style="text-align:center; color:#e63946; padding:20px;">Is environment mein storage available nahi hai (Claude preview sandbox). Ye feature file ko real browser ya APK mein khol kar hi kaam karega.</p>';
+    listEl.innerHTML = '<p style="text-align:center; color:#e63946; padding:20px;">Storage is not available in this environment (Claude preview sandbox). This feature will only work when the file is opened in a real browser or APK.</p>';
     return;
   }
   if(history.length === 0){
-    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">Abhi tak koi bill generate nahi hua hai.</p>';
+    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">No bill has been generated yet.</p>';
     return;
   }
 
@@ -1134,7 +1815,7 @@ function renderSearchResults(){
   });
 
   if(matches.length === 0){
-    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">Koi bill nahi mila. Naam, mobile number, address ya bill number check karke dobara try karein.</p>';
+    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">No bill found. Please check the name, mobile number, address or bill number and try again.</p>';
     return;
   }
 
@@ -1152,21 +1833,35 @@ function renderSearchResults(){
       <div style="font-size:13px; font-weight:600;">${rec.custName || 'Customer'} ${rec.custMobile ? '('+rec.custMobile+')' : ''}</div>
       <div style="font-size:12px; color:#777; margin:2px 0;">${rec.address || ''}</div>
       <div style="font-size:12px; color:#777; margin:4px 0;">${itemsSummary}</div>
-      <div style="font-size:11px; color:#1a7a3e; margin-top:6px;">👆 Tap karein - PDF khulega</div>
+      <div style="font-size:11px; color:#1a7a3e; margin-top:6px;">👆 Tap to open PDF</div>
     `;
     card.addEventListener('click', () => { redownloadBill(idx); });
     listEl.appendChild(card);
   });
 }
 
-// ---------------- BILL HISTORY (localStorage) ----------------
+// ---------------- BILL HISTORY (localStorage + Firebase cloud) ----------------
 const BILL_HISTORY_KEY = 'avrok_bill_history';
+
+function getBillHistoryStorageKey(){
+  const user = window.currentFirebaseUser;
+  return user && user.uid ? ('avrok_bill_history_' + user.uid) : BILL_HISTORY_KEY;
+}
 
 function saveBillToHistory(record){
   try {
-    const existing = JSON.parse(localStorage.getItem(BILL_HISTORY_KEY) || '[]');
-    existing.unshift(record); // newest first
-    localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(existing));
+    const key = getBillHistoryStorageKey();
+    const existing = JSON.parse(localStorage.getItem(key) || '[]');
+    const recordKey = String(record.billNo || '') + '|' + String(record.dateTime || '');
+    const filtered = existing.filter(r => (String(r.billNo || '') + '|' + String(r.dateTime || '')) !== recordKey);
+    filtered.unshift(record); // newest first
+    localStorage.setItem(key, JSON.stringify(filtered));
+    if(typeof renderDrawerRecents === 'function') renderDrawerRecents();
+    if(window.saveBillToFirebase){
+      window.saveBillToFirebase(record).catch(err =>
+        console.warn('Firebase bill history save failed; local copy is still safe:', err)
+      );
+    }
   } catch(e){
     console.warn('Bill history storage not available in this environment:', e);
   }
@@ -1174,11 +1869,18 @@ function saveBillToHistory(record){
 
 function getBillHistory(){
   try {
-    return JSON.parse(localStorage.getItem(BILL_HISTORY_KEY) || '[]');
+    return JSON.parse(localStorage.getItem(getBillHistoryStorageKey()) || '[]');
   } catch(e){
     return null; // storage blocked (e.g. Claude preview sandbox)
   }
 }
+
+// When cloud history arrives after Google login, refresh the open history UI.
+window.addEventListener('avrokFirebaseBillHistoryReady', () => {
+  const overlay = document.getElementById('historyOverlay');
+  if(overlay && overlay.style.display !== 'none') renderBillHistory();
+  if(typeof renderDrawerRecents === 'function') renderDrawerRecents();
+});
 
 let historySelectionMode = false;
 let historySelectedSet = new Set();
@@ -1200,18 +1902,18 @@ function renderBillHistory(){
 
   if (history === null){
     toolbar.style.display = 'none';
-    listEl.innerHTML = '<p style="text-align:center; color:#e63946; padding:20px;">Is environment mein storage available nahi hai (Claude preview sandbox). Ye feature file ko real browser ya APK mein khol kar hi kaam karega.</p>';
+    listEl.innerHTML = '<p style="text-align:center; color:#e63946; padding:20px;">Storage is not available in this environment (Claude preview sandbox). This feature will only work when the file is opened in a real browser or APK.</p>';
     return;
   }
   if (history.length === 0){
     toolbar.style.display = 'none';
-    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">Abhi tak koi bill generate nahi hua hai.</p>';
+    listEl.innerHTML = '<p style="text-align:center; color:#777; padding:20px;">No bill has been generated yet.</p>';
     return;
   }
 
   toolbar.style.display = historySelectionMode ? 'flex' : 'none';
   document.getElementById('historySelectAllCheckbox').checked = historySelectedSet.size === history.length;
-  document.getElementById('historyDeleteSelectedBtn').textContent = `🗑 Delete Selected (${historySelectedSet.size})`;
+  document.getElementById('historyDeleteSelectedBtn').innerHTML = `<svg class="pro-icon history-trash-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg> Delete Selected (${historySelectedSet.size})`;
 
   history.forEach((rec, idx) => {
     const card = document.createElement('div');
@@ -1226,13 +1928,13 @@ function renderBillHistory(){
           <span>Bill No. ${rec.billNo}</span>
           <span style="display:flex; align-items:center; gap:8px;">
             <span>₹${rec.total.toFixed(2)}</span>
-            ${!historySelectionMode ? `<button data-role="delete" style="background:#e63946; color:#fff; border:none; border-radius:6px; width:26px; height:26px; font-size:13px; cursor:pointer; flex-shrink:0;">🗑</button>` : ''}
+            ${!historySelectionMode ? `<button data-role="delete" style="background:#e63946; color:#fff; border:none; border-radius:6px; width:26px; height:26px; font-size:13px; cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center;"><svg class="pro-icon history-trash-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>` : ''}
           </span>
         </div>
         <div style="font-size:12px; color:#555; margin:4px 0;">${rec.dateTime}</div>
         <div style="font-size:13px; font-weight:600;">${rec.custName || 'Customer'} ${rec.custMobile ? '('+rec.custMobile+')' : ''}</div>
         <div style="font-size:12px; color:#777; margin:4px 0;">${itemsSummary}</div>
-        <div style="font-size:11px; color:${historySelectionMode ? '#1a3e8c' : '#1a7a3e'}; margin-top:6px;">${historySelectionMode ? '☑️ Select karne ke liye tap karein' : '👆 Tap karein - PDF khulega · Delete ke liye dabakar rakhein (hold)'}</div>
+        <div style="font-size:11px; color:${historySelectionMode ? '#1a3e8c' : '#1a7a3e'}; margin-top:6px;">${historySelectionMode ? '☑️ Tap to select' : '👆 Tap to refill the form · Press and hold to delete'}</div>
       </div>
     `;
 
@@ -1271,7 +1973,7 @@ function renderBillHistory(){
         else historySelectedSet.add(idx);
         renderBillHistory();
       } else {
-        redownloadBill(idx);
+        restoreBillToForm(idx);
       }
     });
 
@@ -1292,13 +1994,17 @@ function toggleSelectAllHistory(){
 
 function deleteSelectedHistory(){
   if(historySelectedSet.size === 0){
-    alert('Pehle kam se kam ek bill select karein.');
+    alert('Please select at least one bill first.');
     return;
   }
-  if(!confirm(`${historySelectedSet.size} bill(s) delete karein? Ye wapas nahi aayega.`)) return;
+  if(!confirm(`Delete ${historySelectedSet.size} bill(s)? This cannot be undone.`)) return;
   let history = getBillHistory() || [];
+  const deletedRecords = history.filter((_, idx) => historySelectedSet.has(idx));
   history = history.filter((_, idx) => !historySelectedSet.has(idx));
-  try { localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(history)); } catch(e){}
+  try { localStorage.setItem(getBillHistoryStorageKey(), JSON.stringify(history)); } catch(e){}
+  deletedRecords.forEach(rec => {
+    if(window.deleteBillFromFirebase) window.deleteBillFromFirebase(rec).catch(err => console.warn('Firebase delete failed:', err));
+  });
   historySelectionMode = false;
   historySelectedSet.clear();
   renderBillHistory();
@@ -1315,8 +2021,9 @@ function closeBillHistory(){
 }
 
 function clearBillHistory(){
-  if(confirm('Kya aap sach mein saara bill history delete karna chahte hain? Ye wapas nahi aayega.')){
-    try { localStorage.removeItem(BILL_HISTORY_KEY); } catch(e){}
+  if(confirm('Are you sure you want to delete the entire bill history? This cannot be undone.')){
+    try { localStorage.removeItem(getBillHistoryStorageKey()); } catch(e){}
+    if(window.clearBillHistoryFromFirebase) window.clearBillHistoryFromFirebase().catch(err => console.warn('Firebase history clear failed:', err));
     openBillHistory();
   }
 }
@@ -1324,9 +2031,11 @@ function clearBillHistory(){
 function deleteHistoryRecord(idx){
   const history = getBillHistory();
   if(!history || !history[idx]) return;
-  if(confirm(`Bill No. ${history[idx].billNo} ko history se delete karein?`)){
+  if(confirm(`Delete Bill No. ${history[idx].billNo} from history?`)){
+    const deletedRecord = history[idx];
     history.splice(idx, 1);
-    try { localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(history)); } catch(e){}
+    try { localStorage.setItem(getBillHistoryStorageKey(), JSON.stringify(history)); } catch(e){}
+    if(window.deleteBillFromFirebase) window.deleteBillFromFirebase(deletedRecord).catch(err => console.warn('Firebase delete failed:', err));
     openBillHistory();
   }
 }
@@ -1340,17 +2049,17 @@ function deleteHistoryRecord(idx){
 function backupHistoryToFile(silent){
   const history = getBillHistory();
   if(history === null){
-    if(!silent) alert('Is environment mein storage available nahi hai, isliye backup ke liye koi data nahi hai.');
+    if(!silent) alert('Storage is not available in this environment, so there is no data to back up.');
     return;
   }
   if(history.length === 0){
-    if(!silent) alert('Abhi tak koi bill generate nahi hua hai, backup karne ke liye kuch nahi hai.');
+    if(!silent) alert('No bill has been generated yet, so there is nothing to back up.');
     return;
   }
   const stamp = formatNow().replace(/[/,: ]/g, '-');
   downloadTextFile(JSON.stringify(history, null, 2), `AVROK_Bill_History_Backup_${stamp}.json`, 'application/json');
   if(!silent){
-    alert('Backup file aapke phone ke Downloads folder mein save ho gayi hai. Isse hamesha sambhal kar rakhein - isi file se aap purani history wapas la sakte hain.');
+    alert('The backup file has been saved in the Downloads folder of your phone. Please keep it safe - you can restore your old history from this file.');
   }
 }
 
@@ -1379,15 +2088,59 @@ function restoreHistoryFromFile(event){
       });
       // newest first
       merged.sort((a,b) => (b.dateTime || '').localeCompare(a.dateTime || ''));
-      try { localStorage.setItem(BILL_HISTORY_KEY, JSON.stringify(merged)); } catch(e2){}
-      alert(`${imported.length} bills backup file se load ho gaye. Total ab ${merged.length} bills dikh rahe hain.`);
+      try { localStorage.setItem(getBillHistoryStorageKey(), JSON.stringify(merged)); } catch(e2){}
+      merged.forEach(rec => {
+        if(window.saveBillToFirebase) window.saveBillToFirebase(rec).catch(err => console.warn('Firebase restore-sync failed:', err));
+      });
+      alert(`${imported.length} bills were loaded from the backup file. There are now ${merged.length} bills in total.`);
       openBillHistory();
     } catch(err){
-      alert('Ye file sahi format mein nahi hai. Kripya wahi backup file select karein jo isi app se pehle save ki thi.');
+      alert('This file is not in the correct format. Please select the backup file that was previously saved from this app.');
     }
   };
   reader.readAsText(file);
   event.target.value = '';
+}
+
+// Refills the bill form from a saved bill (customer, address, product, model,
+// all items with quantity/rate, and the receiver signature) so it can be
+// continued or edited. Used when a bill is tapped in the history list.
+function restoreBillToForm(idx){
+  const history = getBillHistory();
+  if(!history || !history[idx]) return;
+  const rec = history[idx];
+
+  document.getElementById('sno').value = rec.billNo || '';
+  document.getElementById('custName').value = rec.custName || '';
+  document.getElementById('custMobile').value = rec.custMobile || '';
+  document.getElementById('custAddr').value = rec.address || '';
+  document.getElementById('product').value = rec.product || '';
+  document.getElementById('model').value = rec.model || '';
+  document.getElementById('serial1').value = '';
+  document.getElementById('serial2').value = '';
+
+  const tbody = document.getElementById('itemsBody');
+  tbody.innerHTML = '';
+  rowCount = 0;
+  (rec.items || []).forEach(it => {
+    addRow();
+    const tr = tbody.lastElementChild;
+    tr.querySelector('.itemName').value = it.name || '';
+    tr.querySelector('.itemQty').value = Number(it.qty ?? 1);
+    tr.querySelector('.itemRate').value = Number(it.rate ?? 0);
+  });
+
+  // Always keep at least one editable row, just like a new bill.
+  if(!tbody.children.length) addRow();
+  calcTotal();
+
+  window.receiverSignatureDataUrl = rec.receiverSignature || null;
+  updateSignatureButtonLabel();
+
+  closeBillHistory();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const nameField = document.getElementById('custName');
+  if(nameField) setTimeout(() => nameField.focus(), 250);
 }
 
 function redownloadBill(idx){
@@ -1410,7 +2163,7 @@ function redownloadBill(idx){
   pBody.innerHTML = '';
   (rec.items || []).forEach((it, i) => {
     const row = document.createElement('tr');
-    row.innerHTML = `<td style="text-align:center;">${i+1}</td><td>${it.name}</td><td class="num">${it.qty}</td><td class="num">₹${it.rate.toFixed(2)}</td><td class="num">₹${it.amt.toFixed(2)}</td>`;
+    row.innerHTML = `<td style="text-align:center;">${i+1}</td><td>${it.name}</td><td class="num">${it.qty}</td><td class="num">${fmtAmountCell('₹'+it.rate.toFixed(2))}</td><td class="num">${fmtAmountCell('₹'+it.amt.toFixed(2))}</td>`;
     pBody.appendChild(row);
   });
   const minRows = 6;
@@ -1419,7 +2172,7 @@ function redownloadBill(idx){
     row.innerHTML = `<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>`;
     pBody.appendChild(row);
   }
-  document.getElementById('p_total').textContent = '₹' + rec.total.toFixed(2);
+  document.getElementById('p_total').innerHTML = fmtAmountCell('₹' + rec.total.toFixed(2));
 
   const recvImg = document.getElementById('p_receiverSign');
   if(rec.receiverSignature){
@@ -1597,7 +2350,7 @@ function buildBillMessage(){
 function sendWhatsApp(){
   const mobile = document.getElementById('custMobile').value.trim();
   if(!/^\d{10}$/.test(mobile)){
-    alert('Kripya sahi 10-digit customer mobile number dalein.');
+    alert('Please enter a valid 10-digit customer mobile number.');
     return;
   }
   // Open the tab immediately (synchronously, inside the click handler) so
@@ -1624,7 +2377,7 @@ function buildUpiUrl(total, billNo){
 function generateUPIQR(){
   const total = calcTotal();
   if(total <= 0){
-    alert('Pehle items add karke bill amount set karein.');
+    alert('Please add items and set the bill amount first.');
     return;
   }
   const billNo = document.getElementById('sno').value || '';
@@ -1723,7 +2476,7 @@ function generateUPIQR(){
 function confirmPaymentAndSend(){
   const mobile = document.getElementById('custMobile').value.trim();
   if(!/^\d{10}$/.test(mobile)){
-    alert('WhatsApp bhejne ke liye customer ka 10-digit mobile number dalein.');
+    alert('Please enter a 10-digit customer mobile number to send on WhatsApp.');
     return;
   }
   // Open the tab immediately (synchronously) so Chrome doesn't block it as a popup.
