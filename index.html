@@ -3149,29 +3149,43 @@ function addAiMessage(role, text, id, imageDataUrl){
   return div;
 }
 
-// Bot ka jawab ek saath chhapne ki jagah, Claude/ChatGPT jaisa word-by-word
-// "type" hote hue dikhata hai.
-function typeOutBotMessage(fullText){
+// Backend ab jawab ko real-time stream karta hai (poora jawab complete hone
+// tak wait nahi karna padta) — yeh function chunks aate hi seedha screen par
+// dikhata hai, jaise Claude/ChatGPT mein hota hai. Poora reply text return karta hai.
+async function streamAiReply(payload, loadingId){
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const contentType = res.headers.get('Content-Type') || '';
+  if(!res.ok || contentType.includes('application/json')){
+    let data = {};
+    try { data = await res.json(); } catch(e){}
+    throw new Error(data.error || 'AI se jawab nahi mila. Vercel par GEMINI_API_KEY set hai ya nahi check karein.');
+  }
+
+  document.getElementById(loadingId)?.remove();
+
   const box = document.getElementById('aiChatMessages');
   const div = document.createElement('div');
   div.className = 'ai-msg bot';
   box.appendChild(div);
-  const words = String(fullText || '').split(' ');
-  let i = 0;
-  function step(){
-    const partial = words.slice(0, i + 1).join(' ');
-    div.innerHTML = renderAiMarkdown(partial) + '<span class="ai-typing-cursor">▍</span>';
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let full = '';
+  while(true){
+    const { done, value } = await reader.read();
+    if(done) break;
+    full += decoder.decode(value, { stream: true });
+    div.innerHTML = renderAiMarkdown(full) + '<span class="ai-typing-cursor">▍</span>';
     box.scrollTop = box.scrollHeight;
-    i++;
-    if(i < words.length){
-      setTimeout(step, 28);
-    } else {
-      div.innerHTML = renderAiMarkdown(fullText);
-      box.scrollTop = box.scrollHeight;
-    }
   }
-  step();
-  return div;
+  div.innerHTML = renderAiMarkdown(full);
+  box.scrollTop = box.scrollHeight;
+  return full;
 }
 
 // ---------------- Camera / Photo attach ----------------
@@ -3293,27 +3307,16 @@ async function sendAiMessage(){
   const priorHistory = aiChatHistory.slice(0, -1).slice(-12);
 
   try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        message: messageForApi,
-        messages: priorHistory,
-        image: image ? { mimeType: image.mimeType, data: image.base64 } : undefined
-      })
-    });
-    const data = await res.json();
-    document.getElementById(loadingId)?.remove();
-    if(!res.ok){
-      addAiMessage('bot', 'Error: ' + (data.error || 'AI se jawab nahi mila. Vercel par GEMINI_API_KEY set hai ya nahi check karein.'));
-      return;
-    }
-    typeOutBotMessage(data.reply);
-    aiChatHistory.push({ role: 'assistant', text: data.reply });
+    const replyText = await streamAiReply({
+      model,
+      message: messageForApi,
+      messages: priorHistory,
+      image: image ? { mimeType: image.mimeType, data: image.base64 } : undefined
+    }, loadingId);
+    aiChatHistory.push({ role: 'assistant', text: replyText });
   } catch(e){
     document.getElementById(loadingId)?.remove();
-    addAiMessage('bot', 'AI tak pahuch nahi paye. Yeh feature sirf tab kaam karega jab is app ko Vercel par deploy karke /api/chat backend chalu ho (localhost/file preview mein kaam nahi karega).');
+    addAiMessage('bot', 'Error: ' + (e.message || 'AI tak pahuch nahi paye. Yeh feature sirf tab kaam karega jab is app ko Vercel par deploy karke /api/chat backend chalu ho.'));
   }
 }
 
