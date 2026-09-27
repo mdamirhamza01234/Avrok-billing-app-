@@ -146,8 +146,12 @@ Never instruct the user to work on live electrical wiring.
     const cleanModel = String(model)
       .replace(/^models\//, "")
       .trim();
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`,
+
+    // Gemini ka streamGenerateContent (SSE) use karo taaki jawab jaise-jaise
+    // generate ho, turant client tak pahunch jaye — poora jawab complete hone
+    // tak wait nahi karna padega. Isse response bahut tez mehsoos hota hai.
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:streamGenerateContent?alt=sse`,
       {
         method: "POST",
         headers: {
@@ -162,32 +166,75 @@ Never instruct the user to work on live electrical wiring.
               }
             ]
           },
-          contents
+          contents,
+          generationConfig: {
+            // Bahut lambe jawab response ko dheema karte hain — isse zyada
+            // lamba javab nahi banega, tez khatam hoga.
+            maxOutputTokens: 1024
+          }
         })
       }
     );
-    const data = await response.json();
-    if (!response.ok) {
-      console.error("Gemini error:", data);
-      return res.status(response.status).json({
-        error:
-          data?.error?.message ||
-          "Gemini API error"
+
+    if (!geminiResponse.ok) {
+      let errData = {};
+      try {
+        errData = await geminiResponse.json();
+      } catch (e) {}
+      console.error("Gemini error:", errData);
+      return res.status(geminiResponse.status).json({
+        error: errData?.error?.message || "Gemini API error"
       });
     }
-    const reply =
-      data?.candidates?.[0]?.content?.parts
-        ?.map(part => part.text || "")
-        .join("") ||
-      "AI ne koi response nahi diya.";
-    return res.status(200).json({
-      reply,
-      model: cleanModel
+
+    // Ab plain text stream ke roop mein client ko chunk-by-chunk bhejo.
+    res.writeHead(200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "X-Model-Used": cleanModel
     });
+
+    const reader = geminiResponse.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sentAnything = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop(); // aakhri, abhi-tak-incomplete chunk agli baar ke liye rakho
+      for (const evt of events) {
+        const line = evt.replace(/^data:\s*/, "").trim();
+        if (!line || line === "[DONE]") continue;
+        try {
+          const json = JSON.parse(line);
+          const textPiece =
+            json?.candidates?.[0]?.content?.parts
+              ?.map(p => p.text || "")
+              .join("") || "";
+          if (textPiece) {
+            res.write(textPiece);
+            sentAnything = true;
+          }
+        } catch (e) {
+          // partial/invalid JSON chunk — ignore, agla chunk milne par sahi ho jayega
+        }
+      }
+    }
+
+    if (!sentAnything) {
+      res.write("AI ne koi response nahi diya.");
+    }
+    return res.end();
   } catch (error) {
     console.error("Server error:", error);
-    return res.status(500).json({
-      error: "AI server error."
-    });
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: "AI server error."
+      });
+    }
+    return res.end();
   }
 }
