@@ -3164,7 +3164,16 @@ async function sendAiMessage(){
   const useContext = document.getElementById('aiUseContext').checked;
   const contextText = useContext ? collectBillContextForAi() : '';
 
-  const systemPrompt = "Tum AVROK ACS ke AI assistant ho — ek AC (air conditioner) service, maintenance aur repair company, jo electrical kaam bhi karti hai. Tumhe AC installation, gas charging, cooling issues, compressor/PCB/capacitor problems, aur ghar/office ki electrical wiring, MCB, switchboard, safety ka gehra practical knowledge hai. Jab company ki billing/customer jaankari di jaye to usi ke aadhar par sahi aur seedha jawab do — jaise item/price suggest karna ho to Indian market ke hisaab se reasonable rate batao. Hamesha Hinglish (Hindi-English mix) mein, dost jaisa lekin professional tone mein, chhota aur clear jawab do.";
+  // Backend (/api/chat.js) ka apna hardcoded systemInstruction hai aur woh
+  // sirf `message` (current sawal) aur `messages` (pichla history) fields
+  // padhta hai — `systemPrompt`/`contextText` ko ignore karta hai. Isliye
+  // bill/quotation ka context seedha current message ke saath jodo, aur
+  // history mein sirf pehle wale messages bhejo (current wala dobara nahi,
+  // warna backend usse do baar jod dega).
+  const messageForApi = contextText
+    ? `(Current bill/quotation ka context:\n${contextText})\n\nUser ka sawal: ${text}`
+    : text;
+  const priorHistory = aiChatHistory.slice(0, -1).slice(-12);
 
   try {
     const res = await fetch('/api/chat', {
@@ -3172,9 +3181,8 @@ async function sendAiMessage(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        systemPrompt,
-        contextText,
-        messages: aiChatHistory.slice(-12)
+        message: messageForApi,
+        messages: priorHistory
       })
     });
     const data = await res.json();
