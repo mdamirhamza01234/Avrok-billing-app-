@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     const {
       message,
       messages = [],
-      model = "gemini-3.8-flash",
+      model = "gemini-3.5-flash",
       image
     } = req.body || {};
     if (!message && !image) {
@@ -168,9 +168,15 @@ Never instruct the user to work on live electrical wiring.
           },
           contents,
           generationConfig: {
-            // Bahut lambe jawab response ko dheema karte hain — isse zyada
-            // lamba javab nahi banega, tez khatam hoga.
-            maxOutputTokens: 1024
+            // Gemini 3 models "thinking" (reasoning) tokens bhi isi budget
+            // mein se katte hain. Agar thinkingConfig na diya jaye, toh
+            // thinking hi poora budget kha jaati hai aur asli jawab ke liye
+            // kuch nahi bachta (khaali response aata hai). Isliye thinking
+            // ko low rakho aur budget badhao taaki jawab ke liye jagah bache.
+            maxOutputTokens: 2048,
+            thinkingConfig: {
+              thinkingLevel: "LOW"
+            }
           }
         })
       }
@@ -237,4 +243,5 @@ Never instruct the user to work on live electrical wiring.
     }
     return res.end();
   }
-}
+      }
+    
