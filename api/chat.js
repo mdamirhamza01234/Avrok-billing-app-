@@ -148,56 +148,67 @@ Never instruct the user to work on live electrical wiring.
       .trim();
 
     // Gemini ka streamGenerateContent (SSE) use karo taaki jawab jaise-jaise
-    // generate ho, turant client tak pahunch jaye — poora jawab complete hone
-    // tak wait nahi karna padega. Isse response bahut tez mehsoos hota hai.
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:streamGenerateContent?alt=sse`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [
-              {
-                text: systemInstruction
-              }
-            ]
-          },
-          contents,
-          generationConfig: {
-            // Gemini 3 models "thinking" (reasoning) tokens bhi isi budget
-            // mein se katte hain. Agar thinkingConfig na diya jaye, toh
-            // thinking hi poora budget kha jaati hai aur asli jawab ke liye
-            // kuch nahi bachta (khaali response aata hai). Isliye thinking
-            // ko low rakho aur budget badhao taaki jawab ke liye jagah bache.
-            maxOutputTokens: 2048,
-            thinkingConfig: {
-              thinkingLevel: "LOW"
-            }
-          }
-        })
-      }
-    );
+    // generate ho, turant client tak pahunch jaye.
+    // Agar ek model overloaded (503/429) ho, toh apne aap agla model try karo.
+    const modelsToTry = [cleanModel, "gemini-3.1-flash-lite", "gemini-3.8-flash"]
+      .filter((m, i, arr) => arr.indexOf(m) === i);
 
-    if (!geminiResponse.ok) {
+    const requestBody = JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemInstruction }]
+      },
+      contents,
+      generationConfig: {
+        // Gemini 3 models ki "thinking" tokens bhi isi budget mein katti hain.
+        // Thinking low rakho aur budget badhao taaki jawab ke liye jagah bache.
+        maxOutputTokens: 2048,
+        thinkingConfig: { thinkingLevel: "LOW" }
+      }
+    });
+
+    let geminiResponse = null;
+    let usedModel = cleanModel;
+    let lastErr = { status: 500, message: "Gemini API error" };
+
+    for (const m of modelsToTry) {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:streamGenerateContent?alt=sse`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey
+          },
+          body: requestBody
+        }
+      );
+      if (r.ok) {
+        geminiResponse = r;
+        usedModel = m;
+        break;
+      }
       let errData = {};
       try {
-        errData = await geminiResponse.json();
+        errData = await r.json();
       } catch (e) {}
-      console.error("Gemini error:", errData);
-      return res.status(geminiResponse.status).json({
-        error: errData?.error?.message || "Gemini API error"
-      });
+      console.error("Gemini error (" + m + "):", errData);
+      lastErr = {
+        status: r.status,
+        message: errData?.error?.message || "Gemini API error"
+      };
+      // Sirf overload / rate-limit / server error par doosra model try karo
+      if (![429, 500, 503, 504].includes(r.status)) break;
+    }
+
+    if (!geminiResponse) {
+      return res.status(lastErr.status).json({ error: lastErr.message });
     }
 
     // Ab plain text stream ke roop mein client ko chunk-by-chunk bhejo.
     res.writeHead(200, {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
-      "X-Model-Used": cleanModel
+      "X-Model-Used": usedModel
     });
 
     const reader = geminiResponse.body.getReader();
@@ -243,5 +254,4 @@ Never instruct the user to work on live electrical wiring.
     }
     return res.end();
   }
-      }
-    
+}
