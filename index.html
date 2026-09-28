@@ -3291,7 +3291,7 @@ async function sendAiMessage(){
   const loadingId = 'ai-loading-' + Date.now();
   addAiMessage('bot', 'Soch raha hu...', loadingId).classList.add('loading');
 
-  const model = document.getElementById('aiModelSelect').value;
+  const model = 'gemini-3.5-flash';
   const useContext = document.getElementById('aiUseContext').checked;
   const contextText = useContext ? collectBillContextForAi() : '';
 
@@ -4170,12 +4170,6 @@ quotAddRow();
       <button class="ai-chat-close" onclick="closeAiChat()" aria-label="Close">✕</button>
     </div>
     <div class="ai-chat-controls">
-      <select id="aiModelSelect">
-        <option value="gemini-3.5-flash">Gemini 3.5 Flash (fast)</option>
-        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (smart)</option>
-        <option value="gemini-3.8-flash">Gemini 3.8 Flash (newest)</option>
-        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (cheapest)</option>
-      </select>
       <label class="ai-context-toggle"><input type="checkbox" id="aiUseContext" checked> Is bill ka data AI ko do</label>
     </div>
     <div id="aiChatMessages" class="ai-chat-messages"></div>
