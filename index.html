@@ -1017,7 +1017,13 @@
   .ai-chat-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: #f7f8fb; }
   .ai-msg { max-width: 85%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; }
   .ai-msg.user { align-self: flex-end; background: #1a3e8c; color: #fff; border-bottom-right-radius: 4px; }
-  .ai-msg.bot { align-self: flex-start; background: #fff; border: 1px solid #e3e6ec; color: #14213d; border-bottom-left-radius: 4px; }
+  .ai-msg.bot { align-self: flex-start; background: #fff; border: 1px solid #e3e6ec; color: #14213d; border-bottom-left-radius: 4px; white-space: normal; }
+  .ai-msg .ai-h { font-weight: 700; font-size: 14.5px; margin: 6px 0 2px; }
+  .ai-msg .ai-gap { height: 6px; }
+  .ai-msg .ai-hr { border: none; border-top: 1px solid #d5d9e2; margin: 8px 0; }
+  .ai-msg .ai-ul { margin: 2px 0 2px 18px; padding: 0; }
+  .ai-msg .ai-ul li { margin: 2px 0; }
+  .ai-msg code { background: #eef1f6; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
   .ai-msg.loading { align-self: flex-start; color: #888; font-style: italic; background: transparent; border: none; }
   .ai-typing-cursor { display: inline-block; animation: aiCursorBlink 0.9s steps(1) infinite; color: #1a3e8c; }
   @keyframes aiCursorBlink { 50% { opacity: 0; } }
@@ -3116,12 +3122,36 @@ function closeAiChat(){
 // Gemini replies mein **bold**, *italic* aur naye lines aate hain — inhe
 // safe HTML mein render karo taaki raw ** symbols na dikhein.
 function renderAiMarkdown(text){
-  const escapeHtml = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  let html = escapeHtml(text || '');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/(^|[^*])\*(?!\*)([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
-  html = html.replace(/\n/g, '<br>');
-  return html;
+  const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // **bold**, *italic*, `code` — line ke andar ke formatting
+  const inline = (s) => {
+    s = esc(s);
+    s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*(?!\*)([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+    return s;
+  };
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  let out = '';
+  let inList = false;
+  const closeList = () => { if(inList){ out += '</ul>'; inList = false; } };
+  for(const raw of lines){
+    const line = raw.trim();
+    if(!line){ closeList(); out += '<div class="ai-gap"></div>'; continue; }
+    if(/^(-{3,}|\*{3,}|_{3,})$/.test(line)){ closeList(); out += '<hr class="ai-hr">'; continue; }
+    const h = /^#{1,6}\s+(.*)$/.exec(line);
+    if(h){ closeList(); out += '<div class="ai-h">' + inline(h[1]) + '</div>'; continue; }
+    const b = /^[*\-\u2022]\s+(.*)$/.exec(line);
+    if(b){
+      if(!inList){ out += '<ul class="ai-ul">'; inList = true; }
+      out += '<li>' + inline(b[1]) + '</li>';
+      continue;
+    }
+    closeList();
+    out += '<div>' + inline(line) + '</div>';
+  }
+  closeList();
+  return out;
 }
 
 function addAiMessage(role, text, id, imageDataUrl){
