@@ -1,3 +1,51 @@
+
+              // Sawal dekh kar tay karo: kitni thinking chahiye, jawab chhota ya lamba,
+// aur kaun sa model. Koi extra AI call nahi — sirf tez keyword check, taaki
+// koi extra der na lage.
+function planFor(rawMessage, hasImage) {
+  // Bill context ke saath aaya ho toh sirf asli sawal nikalo
+  let q = String(rawMessage || "");
+  const marker = "User ka sawal:";
+  const idx = q.lastIndexOf(marker);
+  if (idx !== -1) q = q.slice(idx + marker.length);
+  q = q.trim().toLowerCase();
+  const words = q.split(/\s+/).filter(Boolean).length;
+
+  const isChat =
+    words <= 5 &&
+    /^(hi+|hii+|hia|his|hello|hlo|hey|namaste|namaskar|thanks?|thank you|shukriya|dhanyavad|dhanyawad|ok|okay|theek hai|thik hai|accha|acha|bye)\b/.test(q) ||
+    /\b(kaise ho|kese ho|kaisa hai|kya haal|how are you|kaun ho|kon ho|who are you)\b/.test(q);
+  const wantsShort =
+    /\b(short|chhota|chota|chhoti|choti|sankshep|briefly|brief|ek line|1 line|one line)\b|संक्षेप|छोटा/.test(q);
+  const wantsLong =
+    /\b(detail|details|detailed|vistar|vistaar|poori jankari|puri jankari|explain|samjha|samjhao|step by step|deep)\b|विस्तार|समझा/.test(q);
+  const complexTrigger =
+    /\b(kyu|kyun|kyon|why|kaise|kese|kaisey|how|problem|fault|kharab|nahi chal|nhi chal|band ho|error|trip|leak|repair|fix|troubleshoot|wiring|connection|connect|diagram|calculate|calculation|hisab|compare|difference|farq|not working|not cooling|cooling nahi|thanda nahi|garam|awaz|noise|shock|current aa|spark|jal|burn|wire|cable|ampere|amp|amps|load|earthing|kaun si|konsi|kaunsi|tapak|tapakna|tapak raha|chalu nahi|chalu nhi|start nahi|start nhi|on nahi|on nhi|ho raha nahi|nahi ho raha|nhi ho raha|nahi kar raha|nhi kar raha|kaam nahi|kaam nhi|band hai)\b|क्यों|कैसे|समस्या|खराब|वायरिंग/.test(q);
+
+  if (isChat) {
+    return {
+      mode: "chat", level: "MINIMAL", maxTokens: 400, strong: false,
+      hint: "RESPONSE STYLE: This is casual small talk. Reply in 1-2 short friendly lines only."
+    };
+  }
+  if (wantsShort && !hasImage) {
+    return {
+      mode: "short", level: "MINIMAL", maxTokens: 600, strong: false,
+      hint: "RESPONSE STYLE: The user wants a brief answer. Reply in at most 3 short lines, no long introduction."
+    };
+  }
+  if (hasImage || wantsLong || complexTrigger || words > 40) {
+    return {
+      mode: "complex", level: "LOW", maxTokens: wantsLong ? 4096 : 3072, strong: true,
+      hint: "RESPONSE STYLE: This needs a careful, detailed answer. Give a step-by-step explanation: likely causes ordered from most to least likely, what to check or measure, and how to fix it. Prioritize safety for electrical work."
+    };
+  }
+  return {
+    mode: "normal", level: "MINIMAL", maxTokens: 1024, strong: false,
+    hint: "RESPONSE STYLE: Give a clear, practical answer in about 5-8 short lines. Use short bullet points only if they help. No long introduction, and no safety lecture unless there is real electrical risk. If more depth could help, end with one short line offering more detail."
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -96,7 +144,7 @@ electrical/AC component, carefully look at it and:
 - Always prioritize safety, especially for electrical connections.
 Answer in the same language as the user.
 If the user uses Hindi/Hinglish, answer in simple Hindi/Hinglish.
-Give practical and detailed technical explanations.
+Give practical technical explanations. The RESPONSE STYLE instruction at the very end controls how long or short the answer should be, and overrides any general instruction about detail.
 Do not invent actual customer, bill, stock,
 quotation or app data that has not been provided.
 For electrical work, always prioritize safety.
@@ -147,60 +195,109 @@ Never instruct the user to work on live electrical wiring.
       .replace(/^models\//, "")
       .trim();
 
-    // Gemini ka streamGenerateContent (SSE) use karo taaki jawab jaise-jaise
-    // generate ho, turant client tak pahunch jaye.
-    // Agar ek model overloaded (503/429) ho, toh apne aap agla model try karo.
-    const modelsToTry = [cleanModel, "gemini-3.1-flash-lite", "gemini-3.8-flash"]
-      .filter((m, i, arr) => arr.indexOf(m) === i);
+    // Model order: text sawal ke liye sabse tez (Flash-Lite) pehle, photo ke liye
+    // behtar vision wala model pehle. Koi model dheema/overloaded ho toh agla try.
+    const FAST = "gemini-3.1-flash-lite";
+    const hasImage = !!(image && image.data);
+    const plan = planFor(message, hasImage);
+    console.log("Plan:", plan.mode);
+    // Simple sawal -> tez Flash-Lite pehle. Mushkil sawal/photo -> 3.5 Flash pehle.
+    const modelsToTry = (plan.strong
+      ? [cleanModel, FAST, "gemini-3.8-flash"]
+      : [FAST, cleanModel, "gemini-3.8-flash"]
+    ).filter((m, i, arr) => arr.indexOf(m) === i);
+    // Itne ms mein pehla chunk (pehla word) na aaye toh us model ko chhod do
+    const FIRST_TOKEN_TIMEOUT_MS = image && image.data ? 25000 : 12000;
 
-    const requestBody = JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: systemInstruction }]
-      },
-      contents,
-      generationConfig: {
-        // Gemini 3 models ki "thinking" tokens bhi isi budget mein katti hain.
-        // Thinking low rakho aur budget badhao taaki jawab ke liye jagah bache.
-        maxOutputTokens: 2048,
-        thinkingConfig: { thinkingLevel: "LOW" }
+    // Thinking jitni kam, jawab utna tez. Gemini app bhi isi liye tez lagta hai.
+    // 3.5 Flash / 3.1 Flash-Lite: MINIMAL (sabse tez). 3.7/3.8 Flash MINIMAL
+    // support nahi karte (400 error), unke liye LOW.
+    const levelFor = (m) => (/3\.[78]/.test(m) ? "LOW" : plan.level);
+
+    const buildBody = (level) =>
+      JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction + "\n\n" + plan.hint }] },
+        contents,
+        generationConfig: {
+          // Gemini 3 ki thinking tokens bhi isi budget mein katti hain
+          maxOutputTokens: plan.maxTokens,
+          ...(level ? { thinkingConfig: { thinkingLevel: level } } : {})
+        }
+      });
+
+    // Ek model try karo: response headers + pehla chunk timeout ke andar aana chahiye
+    const attempt = async (m, level) => {
+      const t0 = Date.now();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), FIRST_TOKEN_TIMEOUT_MS);
+      try {
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:streamGenerateContent?alt=sse`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey
+            },
+            body: buildBody(level),
+            signal: ctrl.signal
+          }
+        );
+        if (!r.ok) {
+          clearTimeout(timer);
+          let errData = {};
+          try {
+            errData = await r.json();
+          } catch (e) {}
+          return {
+            ok: false,
+            status: r.status,
+            message: errData?.error?.message || "Gemini API error"
+          };
+        }
+        const reader = r.body.getReader();
+        const first = await reader.read(); // pehla chunk aane tak wait
+        clearTimeout(timer);
+        console.log("First chunk from " + m + " in " + (Date.now() - t0) + "ms");
+        return { ok: true, reader, first };
+      } catch (err) {
+        clearTimeout(timer);
+        return {
+          ok: false,
+          status: 504,
+          message:
+            err && err.name === "AbortError"
+              ? "Model ne time par jawab shuru nahi kiya."
+              : "Gemini se connect nahi ho paya."
+        };
       }
-    });
+    };
 
-    let geminiResponse = null;
-    let usedModel = cleanModel;
+    let chosen = null;
+    let usedModel = modelsToTry[0];
     let lastErr = { status: 500, message: "Gemini API error" };
 
     for (const m of modelsToTry) {
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:streamGenerateContent?alt=sse`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey
-          },
-          body: requestBody
+      let a = await attempt(m, levelFor(m));
+      // Thinking level support na ho (400) toh LOW, phir bina thinkingConfig ke try karo
+      if (!a.ok && a.status === 400 && /think/i.test(a.message || "")) {
+        a = await attempt(m, "LOW");
+        if (!a.ok && a.status === 400 && /think/i.test(a.message || "")) {
+          a = await attempt(m, null);
         }
-      );
-      if (r.ok) {
-        geminiResponse = r;
+      }
+      if (a.ok) {
+        chosen = a;
         usedModel = m;
         break;
       }
-      let errData = {};
-      try {
-        errData = await r.json();
-      } catch (e) {}
-      console.error("Gemini error (" + m + "):", errData);
-      lastErr = {
-        status: r.status,
-        message: errData?.error?.message || "Gemini API error"
-      };
-      // Sirf overload / rate-limit / server error par doosra model try karo
-      if (![429, 500, 503, 504].includes(r.status)) break;
+      console.error("Gemini error (" + m + "):", a.status, a.message);
+      lastErr = { status: a.status, message: a.message };
+      // Galat API key / permission par aage try karne ka fayda nahi
+      if (a.status === 401 || a.status === 403) break;
     }
 
-    if (!geminiResponse) {
+    if (!chosen) {
       return res.status(lastErr.status).json({ error: lastErr.message });
     }
 
@@ -208,17 +305,17 @@ Never instruct the user to work on live electrical wiring.
     res.writeHead(200, {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
-      "X-Model-Used": usedModel
+      "X-Model-Used": usedModel,
+      "X-Plan": plan.mode
     });
 
-    const reader = geminiResponse.body.getReader();
+    const reader = chosen.reader;
     const decoder = new TextDecoder();
     let buffer = "";
     let sentAnything = false;
     let lastInfo = "";
 
-    // Ek SSE event process karo: "data: {...}" lines se JSON nikal kar
-    // uska text client ko bhejo.
+    // Ek SSE event process karo: "data: {...}" se JSON nikal kar text bhejo.
     const handleEvent = (evt) => {
       const dataLines = evt
         .split("\n")
@@ -249,15 +346,24 @@ Never instruct the user to work on live electrical wiring.
       }
     };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      // Google SSE events "\r\n\r\n" se alag hote hain — pehle sab "\n" mein badlo.
+    // Google SSE events "\r\n\r\n" se alag hote hain — pehle sab "\n" mein badlo.
+    const processValue = (value) => {
       buffer += decoder.decode(value, { stream: true });
       buffer = buffer.replace(/\r\n/g, "\n");
       const events = buffer.split("\n\n");
       buffer = events.pop(); // aakhri incomplete event agli baar ke liye
       for (const evt of events) handleEvent(evt);
+    };
+
+    // Pehla chunk (jo attempt() mein pehle hi padh liya tha)
+    if (!chosen.first.done && chosen.first.value) {
+      processValue(chosen.first.value);
+    }
+    let finished = chosen.first.done;
+    while (!finished) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      processValue(value);
     }
     // Stream khatam hone par bacha hua buffer bhi process karo
     buffer += decoder.decode();
