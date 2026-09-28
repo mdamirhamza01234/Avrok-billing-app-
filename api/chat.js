@@ -215,34 +215,59 @@ Never instruct the user to work on live electrical wiring.
     const decoder = new TextDecoder();
     let buffer = "";
     let sentAnything = false;
+    let lastInfo = "";
+
+    // Ek SSE event process karo: "data: {...}" lines se JSON nikal kar
+    // uska text client ko bhejo.
+    const handleEvent = (evt) => {
+      const dataLines = evt
+        .split("\n")
+        .filter(l => l.startsWith("data:"))
+        .map(l => l.replace(/^data:\s?/, ""));
+      const payload = dataLines.join("\n").trim();
+      if (!payload || payload === "[DONE]") return;
+      try {
+        const json = JSON.parse(payload);
+        const cand = json?.candidates?.[0];
+        const textPiece =
+          cand?.content?.parts
+            ?.filter(p => !p.thought)
+            .map(p => p.text || "")
+            .join("") || "";
+        if (textPiece) {
+          res.write(textPiece);
+          sentAnything = true;
+        }
+        if (cand?.finishReason && cand.finishReason !== "STOP") {
+          lastInfo = "finishReason: " + cand.finishReason;
+        }
+        if (json?.promptFeedback?.blockReason) {
+          lastInfo = "blocked: " + json.promptFeedback.blockReason;
+        }
+      } catch (e) {
+        // incomplete/invalid JSON — ignore
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      // Google SSE events "\r\n\r\n" se alag hote hain — pehle sab "\n" mein badlo.
       buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
       const events = buffer.split("\n\n");
-      buffer = events.pop(); // aakhri, abhi-tak-incomplete chunk agli baar ke liye rakho
-      for (const evt of events) {
-        const line = evt.replace(/^data:\s*/, "").trim();
-        if (!line || line === "[DONE]") continue;
-        try {
-          const json = JSON.parse(line);
-          const textPiece =
-            json?.candidates?.[0]?.content?.parts
-              ?.map(p => p.text || "")
-              .join("") || "";
-          if (textPiece) {
-            res.write(textPiece);
-            sentAnything = true;
-          }
-        } catch (e) {
-          // partial/invalid JSON chunk — ignore, agla chunk milne par sahi ho jayega
-        }
-      }
+      buffer = events.pop(); // aakhri incomplete event agli baar ke liye
+      for (const evt of events) handleEvent(evt);
     }
+    // Stream khatam hone par bacha hua buffer bhi process karo
+    buffer += decoder.decode();
+    buffer = buffer.replace(/\r\n/g, "\n");
+    if (buffer.trim()) handleEvent(buffer);
 
     if (!sentAnything) {
-      res.write("AI ne koi response nahi diya.");
+      res.write(
+        "AI ne koi response nahi diya." + (lastInfo ? " (" + lastInfo + ")" : "")
+      );
     }
     return res.end();
   } catch (error) {
