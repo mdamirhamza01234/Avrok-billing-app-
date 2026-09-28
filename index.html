@@ -1028,6 +1028,7 @@
   .ai-typing-cursor { display: inline-block; animation: aiCursorBlink 0.9s steps(1) infinite; color: #1a3e8c; }
   @keyframes aiCursorBlink { 50% { opacity: 0; } }
   .ai-chat-inputrow { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eee; background: #fff; flex-shrink: 0; }
+  .ai-disclaimer { padding: 4px 12px 8px; font-size: 11px; line-height: 1.35; color: #6b7280; text-align: center; background: #fff; flex-shrink: 0; }
   .ai-chat-inputrow input { flex: 1; padding: 10px 14px; border-radius: 20px; border: 1px solid #ccc; font-size: 14px; min-width: 0; }
   .ai-send-btn { width: 40px; height: 40px; border-radius: 50%; background: #1a3e8c; color: #fff; border: none; font-size: 16px; cursor: pointer; flex-shrink: 0; }
   .login-logo {
@@ -4210,6 +4211,7 @@ quotAddRow();
       <input type="text" id="aiChatInput" placeholder="AC ya electrical sawal poochein..." onkeydown="if(event.key==='Enter'){sendAiMessage();}">
       <button class="ai-send-btn" onclick="sendAiMessage()" aria-label="Send">➤</button>
     </div>
+    <div class="ai-disclaimer">⚠️ AI can make mistakes. Please verify important information, and follow proper safety practices before doing any electrical or AC work.</div>
   </div>
 </div>
 
